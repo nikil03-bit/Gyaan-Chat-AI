@@ -1,20 +1,21 @@
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import "../../styles/layout.css";
 
 export default function AppLayout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <div className="appLayout">
-      <Sidebar />
-      <div className="appMain">
-        <Topbar />
-        <main className="appContent">
-          <div className="maxWidthContainer">
-            <Outlet />
-          </div>
-        </main>
+    <div className="app-shell">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="app-main">
+        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <div className="app-content">
+          <Outlet />
+        </div>
       </div>
     </div>
   );
 }
+

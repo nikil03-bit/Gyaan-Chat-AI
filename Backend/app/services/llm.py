@@ -19,3 +19,4 @@ def generate_answer(prompt: str) -> str:
 
     response.raise_for_status()
     return response.json()["response"].strip()
+

@@ -5,9 +5,13 @@ export async function uploadDocument(tenantId: string, file: File): Promise<Uplo
   const form = new FormData();
   form.append("file", file);
 
-  const { data } = await api.post(`/documents/upload?tenant_id=${encodeURIComponent(tenantId)}`, form, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  // Do NOT set Content-Type manually — axios sets it automatically as
+  // 'multipart/form-data; boundary=...' when the body is FormData.
+  // Setting it manually strips the boundary and causes FastAPI to return 422.
+  const { data } = await api.post(
+    `/documents/upload?tenant_id=${encodeURIComponent(tenantId)}`,
+    form
+  );
 
   return data;
 }
@@ -29,10 +33,10 @@ export async function deleteDocument(tenantId: string, docId: string): Promise<{
   return data;
 }
 
-export async function chatTenant(tenantId: string, userText: string): Promise<ChatResponse> {
-  // Support both common payload styles
-  const payload1 = { tenant_id: tenantId, question: userText };
-  const payload2 = { tenant_id: tenantId, message: userText };
+export async function chatTenant(tenantId: string, userText: string, options?: { temperature?: number }): Promise<ChatResponse> {
+  // Support both common payload styles and include options if present
+  const payload1 = { tenant_id: tenantId, question: userText, ...options };
+  const payload2 = { tenant_id: tenantId, message: userText, ...options };
 
   try {
     const { data } = await api.post("/chat/", payload1);
@@ -42,3 +46,4 @@ export async function chatTenant(tenantId: string, userText: string): Promise<Ch
     return data;
   }
 }
+

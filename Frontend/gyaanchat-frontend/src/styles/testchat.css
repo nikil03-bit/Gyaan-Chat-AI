@@ -1,0 +1,78 @@
+/* src/styles/testchat.css */
+
+.previewPanel {
+    background: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    color: #495057;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.previewHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+}
+
+.previewContent {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    padding-bottom: 8px;
+    animation: slideDown 0.2s ease-out;
+}
+
+.previewItem {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.previewLabel {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #adb5bd;
+}
+
+.previewValue {
+    font-weight: 500;
+    color: #212529;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.colorSample {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Enhancements to existing chat elements for theming */
+.chatBubble.assistantBubble {
+    background-color: #f1f3f5;
+    color: #212529;
+}

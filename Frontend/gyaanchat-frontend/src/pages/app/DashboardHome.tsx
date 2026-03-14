@@ -13,39 +13,39 @@ export default function DashboardHome() {
 
   return (
     <div className="page">
-      <header className="pageHeader">
+      <header className="page-header">
         <div>
-          <h1 className="pageTitle">Welcome back!</h1>
-          <p className="muted">Here is what's happening with your AI assistant.</p>
+          <h1 className="page-title">Welcome back!</h1>
+          <p className="page-subtitle">Here is what's happening with your AI assistant.</p>
         </div>
       </header>
 
-      <div className="statGrid">
+      <div className="stat-grid">
         {stats.map((s, i) => (
-          <div key={i} className="statCard">
-            <div className="statLabel">{s.label}</div>
-            <div className="statValue">{s.value}</div>
+          <div key={i} className="stat-card">
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value">{s.value}</div>
           </div>
         ))}
       </div>
 
       <div className="card">
-        <h2 style={{ fontSize: "1.1rem", marginBottom: 16 }}>Recent Queries</h2>
+        <h2 style={{ fontSize: "1.0625rem", fontWeight: 600, marginBottom: 20 }}>Recent Queries</h2>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table className="data-table">
             <thead>
-              <tr style={{ borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
-                <th style={{ padding: "12px 0", fontSize: "0.875rem", color: "#64748b" }}>Visitor</th>
-                <th style={{ padding: "12px 0", fontSize: "0.875rem", color: "#64748b" }}>Query</th>
-                <th style={{ padding: "12px 0", fontSize: "0.875rem", color: "#64748b" }}>Time</th>
+              <tr>
+                <th>Visitor</th>
+                <th>Query</th>
+                <th>Time</th>
               </tr>
             </thead>
             <tbody>
               {recentChats.map((c) => (
-                <tr key={c.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "12px 0", fontSize: "0.875rem", fontWeight: 500 }}>{c.user}</td>
-                  <td style={{ padding: "12px 0", fontSize: "0.875rem" }}>{c.query}</td>
-                  <td style={{ padding: "12px 0", fontSize: "0.875rem", color: "#64748b" }}>{c.date}</td>
+                <tr key={c.id}>
+                  <td style={{ fontWeight: 500 }}>{c.user}</td>
+                  <td>{c.query}</td>
+                  <td className="muted">{c.date}</td>
                 </tr>
               ))}
             </tbody>

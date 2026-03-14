@@ -14,3 +14,4 @@ def get_client():
 def get_collection(tenant_id: str):
     client = get_client()
     return client.get_or_create_collection(name=tenant_id)
+

@@ -25,3 +25,4 @@ export type ChatResponse = {
   }>;
   conversation_id?: string;
 };
+

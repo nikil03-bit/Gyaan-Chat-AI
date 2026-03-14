@@ -15,3 +15,4 @@ def chunk_text(text: str, chunk_size=1200, overlap=200):
             start = 0
 
     return chunks
+

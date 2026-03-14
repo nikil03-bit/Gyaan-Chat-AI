@@ -1,238 +1,192 @@
 import { useState, useEffect } from "react";
-import {
-    getAnalyticsSummary,
-    getAnalyticsTimeseries,
-    getTopQuestions,
-    type AnalyticsSummary,
-    type TimeSeriesPoint,
-    type TopQuestion
-} from "../../api/analytics";
-import { listDocuments } from "../../api/endpoints";
-import "../../styles/analytics.css";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { api } from "../../api/client";
+import Skeleton from "../../components/ui/Skeleton";
 
-export default function AnalyticsPage() {
-    const tenantId = localStorage.getItem("gyaanchat_tenant_id") || "tenantA";
-    const [filter, setFilter] = useState("7");
+interface Summary {
+    total_messages: number;
+    total_documents: number;
+    avg_sources: number;
+    messages_today: number;
+}
+
+interface RecentLog {
+    question: string;
+    answer_preview: string;
+    source_count: number;
+    created_at: string;
+}
+
+function timeAgo(iso: string) {
+    if (!iso) return "—";
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+}
+
+export default function DashboardPage() {
+    const { user, tenant, bot } = useAuth();
+    const navigate = useNavigate();
+    const tenantId = tenant?.id || localStorage.getItem("gyaanchat_tenant_id") || "";
+
     const [loading, setLoading] = useState(true);
-    const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
-    const [timeseries, setTimeseries] = useState<TimeSeriesPoint[]>([]);
-    const [topQuestions, setTopQuestions] = useState<TopQuestion[]>([]);
-    const [docCount, setDocCount] = useState(0);
-    const [isFallback, setIsFallback] = useState(false);
+    const [summary, setSummary] = useState<Summary | null>(null);
+    const [recent, setRecent] = useState<RecentLog[]>([]);
+    const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        fetchData();
-    }, [tenantId, filter]);
+        if (!tenantId) return;
+        Promise.all([
+            api.get("/analytics/summary").catch(() => api.get(`/analytics/stats?tenant_id=${tenantId}`)),
+            api.get("/analytics/recent").catch(() => api.get(`/analytics/questions?tenant_id=${tenantId}`)),
+        ])
+            .then(([sRes, rRes]) => {
+                const s = sRes.data;
+                setSummary({ total_messages: s.total_messages ?? 0, total_documents: s.total_documents ?? 0, avg_sources: s.avg_sources ?? 0, messages_today: s.messages_today ?? 0 });
+                const logs = rRes.data;
+                if (Array.isArray(logs)) {
+                    setRecent(logs.map((l: any) => ({ question: l.question || l.message || "", answer_preview: l.answer_preview || "", source_count: l.source_count ?? 0, created_at: l.created_at || "" })));
+                }
+            })
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, [tenantId]);
 
-    const fetchData = async () => {
-        setLoading(true);
-        try {
-            // Parallel fetch
-            const [sum, series, topQ, docs] = await Promise.all([
-                getAnalyticsSummary(tenantId),
-                getAnalyticsTimeseries(tenantId, parseInt(filter)),
-                getTopQuestions(tenantId),
-                listDocuments(tenantId)
-            ]);
-
-            setDocCount(Array.isArray(docs) ? docs.length : 0);
-
-            if (sum) {
-                setSummary(sum);
-                setIsFallback(false);
-            } else {
-                // Fallback Summary
-                setSummary({
-                    total_queries: 124,
-                    avg_response_ms: 1450,
-                    documents_indexed: Array.isArray(docs) ? docs.length : 0,
-                    success_rate: 98.2
-                });
-                setIsFallback(true);
-            }
-
-            if (series && series.length > 0) {
-                setTimeseries(series);
-            } else {
-                // Generate Mock series
-                const mockSeries = Array.from({ length: parseInt(filter) }, (_, i) => ({
-                    label: `Day ${i + 1}`,
-                    value: Math.floor(Math.random() * 50) + 10
-                }));
-                setTimeseries(mockSeries);
-            }
-
-            if (topQ && topQ.length > 0) {
-                setTopQuestions(topQ);
-            } else {
-                setTopQuestions([
-                    { question: "What services do you offer?", count: 42 },
-                    { question: "How to reset my password?", count: 28 },
-                    { question: "Can I upgrade my plan?", count: 25 },
-                    { question: "Who founded GyaanChat?", count: 18 },
-                    { question: "How does the AI training work?", count: 12 },
-                    { question: "Is my data secure?", count: 10 },
-                    { question: "Where is the documentation?", count: 8 },
-                    { question: "How to contact support?", count: 5 }
-                ]);
-            }
-        } catch (err) {
-            console.error("Critical analytics fetch error", err);
-        } finally {
-            setLoading(false);
+    function copyWidgetKey() {
+        if (bot?.widget_key) {
+            navigator.clipboard.writeText(bot.widget_key);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
         }
-    };
-
-    const getSuccessBadge = (rate: number) => {
-        if (rate >= 95) return "badge-success";
-        if (rate >= 80) return "badge-warning";
-        return "badge-danger";
-    };
-
-    if (loading) {
-        return (
-            <div className="page analyticsContainer">
-                <header className="pageHeader">
-                    <h1 className="pageTitle">Dashboard</h1>
-                </header>
-                <div style={{ padding: '40px', textAlign: 'center' }}>Loading metrics...</div>
-            </div>
-        );
     }
 
+    const STATS = [
+        { label: "Total Messages", value: summary?.total_messages ?? 0 },
+        { label: "Documents", value: summary?.total_documents ?? 0 },
+        { label: "Messages Today", value: summary?.messages_today ?? 0 },
+        { label: "Avg Sources / Answer", value: summary?.avg_sources ?? 0 },
+    ];
+
     return (
-        <div className="page analyticsContainer">
-            <header className="pageHeader analyticsHeader">
+        <div className="page">
+            {/* Header */}
+            <div className="page-header">
                 <div>
-                    <h1 className="pageTitle">Dashboard</h1>
-                    <p className="muted">Overview of your chatbot performance and usage</p>
-                </div>
-                <select
-                    className="filterSelect"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                >
-                    <option value="7">Last 7 days</option>
-                    <option value="30">Last 30 days</option>
-                </select>
-            </header>
-
-            {isFallback && (
-                <div className="notice">
-                    <span>ℹ️</span> Analytics backend not fully configured yet. Showing simulated data with real document count.
-                </div>
-            )}
-
-            {/* Top Stat Cards */}
-            <div className="analyticsStatGrid">
-                <div className="statCard">
-                    <div className="statLabel">Total Queries</div>
-                    <div className="statValue">
-                        {summary?.total_queries?.toLocaleString() || 0}
-                        <span className="statDelta up">↑ 12%</span>
-                    </div>
-                </div>
-                <div className="statCard">
-                    <div className="statLabel">Avg Response</div>
-                    <div className="statValue">
-                        {summary?.avg_response_ms || 0}ms
-                    </div>
-                </div>
-                <div className="statCard">
-                    <div className="statLabel">Documents Indexed</div>
-                    <div className="statValue">
-                        {docCount}
-                    </div>
-                </div>
-                <div className="statCard">
-                    <div className="statLabel">Success Rate</div>
-                    <div className="statValue">
-                        {summary?.success_rate || 0}%
-                        <span className={`badge ${getSuccessBadge(summary?.success_rate || 0)}`} style={{ fontSize: '0.75rem', marginLeft: 'auto' }}>
-                            Target
-                        </span>
-                    </div>
+                    <h1 className="page-title">Welcome back, {user?.name?.split(" ")[0] || "there"} 👋</h1>
+                    <p className="page-subtitle">Manage your AI chatbot platform</p>
                 </div>
             </div>
 
-            {/* Main Chart */}
-            <div className="card chartContainer">
-                <h2 className="chartTitle">Queries Over Time</h2>
-                <div className="barChart">
-                    {timeseries.map((p, i) => {
-                        const max = Math.max(...timeseries.map(pp => pp.value), 1);
-                        const height = (p.value / max) * 100;
-                        return (
-                            <div key={i} className="barGroup">
-                                <div
-                                    className="bar"
-                                    style={{ height: `${height}%` }}
-                                    data-value={p.value}
-                                ></div>
-                                <span className="barLabel">{p.label}</span>
-                            </div>
-                        );
-                    })}
-                </div>
+            {/* Stat Cards */}
+            <div className="stat-grid">
+                {STATS.map((s) => (
+                    <div key={s.label} className="stat-card">
+                        <div className="stat-label">{s.label}</div>
+                        {loading ? (
+                            <Skeleton width="60%" height="36px" style={{ marginTop: 4 }} />
+                        ) : (
+                            <div className="stat-value">{typeof s.value === "number" ? s.value.toLocaleString() : s.value}</div>
+                        )}
+                    </div>
+                ))}
             </div>
 
-            <div className="analyticsGrid">
-                {/* Popular Questions */}
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <h2 className="chartTitle" style={{ padding: '24px 24px 0 24px' }}>Popular Questions</h2>
-                    <table className="analyticsTable">
-                        <thead>
-                            <tr>
-                                <th>Question</th>
-                                <th style={{ textAlign: 'right' }}>Count</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {topQuestions.map((q, i) => (
-                                <tr key={i}>
-                                    <td>{q.question}</td>
-                                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{q.count}</td>
+            {/* Two-column: Recent + Quick Actions */}
+            <div className="charts-grid">
+                {/* Recent Conversations */}
+                <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                    <div style={{ padding: "20px 28px", borderBottom: "1px solid var(--color-border)" }}>
+                        <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Recent Conversations</h2>
+                    </div>
+                    {loading ? (
+                        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+                            {[1, 2, 3].map((i) => <Skeleton key={i} height="20px" />)}
+                        </div>
+                    ) : recent.length === 0 ? (
+                        <div className="empty-state" style={{ padding: "40px 24px" }}>
+                            <div className="empty-state-icon">💬</div>
+                            <div className="empty-state-title">No conversations yet</div>
+                            <div className="empty-state-sub">Start testing your bot to see history here.</div>
+                        </div>
+                    ) : (
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Question</th>
+                                    <th style={{ textAlign: "right" }}>Sources</th>
+                                    <th>Time</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {recent.slice(0, 8).map((log, i) => (
+                                    <tr key={i}>
+                                        <td style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {log.question}
+                                        </td>
+                                        <td style={{ textAlign: "right" }}>
+                                            <span className="badge badge-muted">{log.source_count}</span>
+                                        </td>
+                                        <td className="muted">{timeAgo(log.created_at)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
 
-                {/* Recent Activity Placeholder */}
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <h2 className="chartTitle" style={{ padding: '24px 24px 0 24px' }}>Recent Interactions</h2>
-                    <table className="analyticsTable">
-                        <thead>
-                            <tr>
-                                <th>User Query</th>
-                                <th style={{ textAlign: 'right' }}>Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>How do I get started with the widget?</td>
-                                <td className="muted" style={{ textAlign: 'right' }}>5m ago</td>
-                            </tr>
-                            <tr>
-                                <td>What is your pricing model for teams?</td>
-                                <td className="muted" style={{ textAlign: 'right' }}>12m ago</td>
-                            </tr>
-                            <tr>
-                                <td>Do you support multilingual bots?</td>
-                                <td className="muted" style={{ textAlign: 'right' }}>24m ago</td>
-                            </tr>
-                            <tr>
-                                <td>Is there an API for fetching chats?</td>
-                                <td className="muted" style={{ textAlign: 'right' }}>1h ago</td>
-                            </tr>
-                            <tr>
-                                <td>Hello!</td>
-                                <td className="muted" style={{ textAlign: 'right' }}>2h ago</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                {/* Quick Actions */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div className="card">
+                        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: 16 }}>Quick Actions</h2>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {[
+                                { label: "Upload Document", icon: "📄", to: "/app/documents" },
+                                { label: "Test Your Bot", icon: "💬", to: "/app/test-chat" },
+                                { label: "Get Embed Code", icon: "🚀", to: "/app/install" },
+                            ].map((a) => (
+                                <button
+                                    key={a.to}
+                                    className="btn-ghost"
+                                    style={{ justifyContent: "flex-start", gap: 10, padding: "10px 14px" }}
+                                    onClick={() => navigate(a.to)}
+                                >
+                                    <span>{a.icon}</span> {a.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Bot Status */}
+                    <div className="card">
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                            <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Bot Status</h2>
+                            <span className="badge badge-success">● Active</span>
+                        </div>
+                        <div style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)", marginBottom: 8 }}>
+                            <strong style={{ color: "var(--color-text-primary)" }}>{bot?.name || "Your Bot"}</strong>
+                        </div>
+                        {bot?.widget_key && (
+                            <div>
+                                <div className="label">Widget Key</div>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                    <code className="mono" style={{ flex: 1, background: "var(--color-bg-input)", padding: "6px 10px", borderRadius: "var(--radius-sm)", fontSize: "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {bot.widget_key}
+                                    </code>
+                                    <button className="btn-ghost" style={{ padding: "6px 10px", fontSize: "0.75rem" }} onClick={copyWidgetKey}>
+                                        {copied ? "✓" : "Copy"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
+

@@ -1,5 +1,0 @@
-FULL PROJECT EXPORT FOR AI ANALYSIS
-Generated: 2026-02-11 18:12:10
-
-
-[ERROR] src/ folder not found in this directory.

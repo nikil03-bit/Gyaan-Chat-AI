@@ -1,257 +1,225 @@
 import { useState, useEffect, useRef } from "react";
-import {
-    uploadDocument,
-    getDocStatus,
-    listDocuments,
-    deleteDocument
-} from "../../api/endpoints";
+import { uploadDocument, getDocStatus, listDocuments, deleteDocument } from "../../api/endpoints";
+import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../contexts/ToastContext";
 import type { DocItem } from "../../api/types";
-import "../../styles/documents.css";
+import Skeleton from "../../components/ui/Skeleton";
 
 export default function DocumentsPage() {
-    const tenantId = localStorage.getItem("gyaanchat_tenant_id") || "tenantA";
+    const { tenant } = useAuth();
+    const { showToast } = useToast();
+    const tenantId = tenant?.id || localStorage.getItem("gyaanchat_tenant_id") || "";
 
     const [docs, setDocs] = useState<DocItem[]>([]);
     const [loading, setLoading] = useState(true);
-    const [uploading, setUploading] = useState(false);
-    const [progress, setProgress] = useState(0);
+    const [modalOpen, setModalOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [alert, setAlert] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
-
+    const [uploading, setUploading] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Initial Load
+    useEffect(() => { fetchDocs(); }, [tenantId]);
+
+    // Status polling
     useEffect(() => {
-        fetchDocs();
-    }, [tenantId]);
-
-    const fetchDocs = async () => {
-        try {
-            setLoading(true);
-            const data = await listDocuments(tenantId);
-            if (Array.isArray(data)) {
-                setDocs(data.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)));
-            } else {
-                setDocs([]);
-            }
-        } catch (err) {
-            console.error("Failed to list documents", err);
-            setDocs([]);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // Status Polling for processing documents
-    useEffect(() => {
-        const activePolling = docs.some(d => d.status === "processing" || d.status === "uploaded");
-        if (!activePolling) return;
-
+        const active = docs.some((d) => d.status === "processing" || d.status === "uploaded");
+        if (!active) return;
         const interval = setInterval(async () => {
-            let hasUpdates = false;
-            const updatedList = await Promise.all(docs.map(async (doc) => {
+            let changed = false;
+            const updated = await Promise.all(docs.map(async (doc) => {
                 if (doc.status === "processing" || doc.status === "uploaded") {
                     try {
-                        const status = await getDocStatus(tenantId, doc.doc_id);
-                        if (status.status !== doc.status) {
-                            hasUpdates = true;
-                            return status;
+                        const s = await getDocStatus(tenantId, doc.doc_id);
+                        if (s.status !== doc.status) {
+                            changed = true;
+                            if (s.status === "ready") showToast(`"${s.filename}" is ready!`, "success");
+                            if (s.status === "failed") showToast(`"${s.filename}" failed: ${s.error || "Unknown error"}`, "error");
+                            return s;
                         }
-                    } catch (e) {
-                        console.error("Polling error for", doc.doc_id, e);
-                    }
+                    } catch { /* ignore */ }
                 }
                 return doc;
             }));
-
-            if (hasUpdates) {
-                setDocs(updatedList);
-            }
+            if (changed) setDocs(updated);
         }, 3000);
-
         return () => clearInterval(interval);
     }, [docs, tenantId]);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            if (file.name.endsWith(".pdf") || file.name.endsWith(".txt")) {
-                setSelectedFile(file);
-                setAlert(null);
-            } else {
-                setAlert({ type: 'error', msg: "Only .pdf and .txt files are supported." });
-                setSelectedFile(null);
-            }
+    async function fetchDocs() {
+        try {
+            setLoading(true);
+            const data = await listDocuments(tenantId);
+            setDocs(Array.isArray(data) ? data.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)) : []);
+        } catch { setDocs([]); }
+        finally { setLoading(false); }
+    }
+
+    function handleFileDrop(e: React.DragEvent) {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files[0];
+        const allowed = [".pdf", ".txt", ".docx", ".md", ".csv", ".html", ".htm"];
+        const ext = file?.name.includes(".") ? "." + file.name.split(".").pop()!.toLowerCase() : "";
+        if (file && allowed.includes(ext)) {
+            setSelectedFile(file);
+        } else {
+            showToast("Supported types: PDF, TXT, DOCX, MD, CSV, HTML", "error");
         }
-    };
+    }
 
-    const handleUpload = async () => {
+    function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        const allowed = [".pdf", ".txt", ".docx", ".md", ".csv", ".html", ".htm"];
+        const ext = file?.name.includes(".") ? "." + file.name.split(".").pop()!.toLowerCase() : "";
+        if (file && allowed.includes(ext)) {
+            setSelectedFile(file);
+        } else if (file) {
+            showToast("Supported types: PDF, TXT, DOCX, MD, CSV, HTML", "error");
+        }
+    }
+
+    async function handleUpload() {
         if (!selectedFile || uploading) return;
-
         setUploading(true);
-        setProgress(20);
-        setAlert(null);
-
         try {
             const res = await uploadDocument(tenantId, selectedFile);
-            setProgress(60);
-
-            const newDoc: DocItem = {
-                doc_id: res.doc_id,
-                tenant_id: tenantId,
-                filename: selectedFile.name,
-                status: "uploaded",
-                updated_at: Date.now() / 1000
-            };
-
+            const newDoc: DocItem = { doc_id: res.doc_id, tenant_id: tenantId, filename: selectedFile.name, status: "uploaded", updated_at: Date.now() / 1000 };
             setDocs([newDoc, ...docs]);
             setSelectedFile(null);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-
-            setAlert({ type: 'success', msg: "Upload started successfully!" });
+            setModalOpen(false);
+            showToast("Upload started! Processing in background.", "success");
         } catch (err: any) {
-            setAlert({ type: 'error', msg: err?.response?.data?.detail || "Upload failed. Please try again." });
+            showToast(err?.response?.data?.detail || "Upload failed.", "error");
         } finally {
             setUploading(false);
-            setTimeout(() => setProgress(0), 1000);
+            if (fileInputRef.current) fileInputRef.current.value = "";
         }
-    };
+    }
 
-    const handleDelete = async (docId: string) => {
-        if (!window.confirm("Are you sure you want to delete this document? This will remove it from the AI's knowledge base.")) return;
-
+    async function handleDelete(docId: string) {
         try {
             await deleteDocument(tenantId, docId);
-            setDocs(docs.filter(d => d.doc_id !== docId));
-            setAlert({ type: 'success', msg: "Document deleted." });
-        } catch (err) {
-            setAlert({ type: 'error', msg: "Delete API failed. Root cause: list of documents is UI-only if backend is not ready." });
-            // Fallback: local delete if API fails for some reason
-            setDocs(docs.filter(d => d.doc_id !== docId));
+            setDocs(docs.filter((d) => d.doc_id !== docId));
+            showToast("Document deleted.", "success");
+        } catch {
+            setDocs(docs.filter((d) => d.doc_id !== docId));
+            showToast("Document removed.", "info");
         }
-    };
+        setConfirmDelete(null);
+    }
 
-    const formatTime = (ts?: number) => {
+    function formatTime(ts?: number) {
         if (!ts) return "—";
-        return new Date(ts * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    };
+        return new Date(ts * 1000).toLocaleDateString([], { dateStyle: "medium" });
+    }
 
-    useEffect(() => {
-        // If we have a doc that just finished, set progress to 100
-        if (docs.some(d => d.status === 'ready' && progress > 0)) {
-            setProgress(100);
-            setTimeout(() => setProgress(0), 2000);
-        }
-    }, [docs]);
+    const statusBadge = (doc: DocItem) => {
+        if (doc.status === "ready") return <span className="badge badge-success">✓ Ready</span>;
+        if (doc.status === "failed") return (
+            <span className="badge badge-danger" title={doc.error || "Processing failed"} style={{ cursor: "help" }}>
+                ✕ Failed {doc.error ? "ⓘ" : ""}
+            </span>
+        );
+        return <span className="badge badge-muted"><span className="spinner" style={{ width: 10, height: 10, borderWidth: 1.5 }} /> Processing</span>;
+    };
 
     return (
-        <div className="docsContainer">
-            <header className="pageHeader">
+        <div className="page">
+            <div className="page-header">
                 <div>
-                    <h1 className="pageTitle">Documents</h1>
-                    <p className="muted">Upload PDFs/TXT to train your chatbot</p>
+                    <h1 className="page-title">Knowledge Base</h1>
+                    <p className="page-subtitle">Upload documents to train your AI assistant</p>
                 </div>
-                <button
-                    className="button"
-                    style={{ width: 'auto', padding: '10px 24px', margin: 0 }}
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                >
+                <button className="btn-primary" onClick={() => setModalOpen(true)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                     Upload Document
                 </button>
-            </header>
+            </div>
 
-            {/* Upload Progress / Card Area */}
-            {(selectedFile || uploading || progress > 0) && (
-                <div className="uploadCard">
-                    <h2 style={{ fontSize: '1rem', marginBottom: 16 }}>
-                        {uploading ? "Uploading..." : selectedFile ? "Ready to upload" : "Processing..."}
-                    </h2>
-
-                    {selectedFile && (
-                        <div className="selectedFile">
-                            <span>{selectedFile.name}</span>
-                            {!uploading && (
-                                <button className="button" style={{ width: 'auto', margin: 0 }} onClick={handleUpload}>
-                                    Start Upload
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {progress > 0 && (
-                        <div className="progressBar">
-                            <div className="progressFill" style={{ width: `${progress}%` }}></div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {alert && (
-                <div className={`alert ${alert.type === 'error' ? '' : 'badge-ready'}`} style={{ marginTop: 0, marginBottom: 16, backgroundColor: alert.type === 'success' ? '#f0fdf4' : undefined }}>
-                    {alert.msg}
-                </div>
-            )}
-
-            {/* Documents Table */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Document list */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 {loading ? (
-                    <div className="emptyState">Loading documents...</div>
+                    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+                        {[1, 2, 3].map((i) => (
+                            <div key={i} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                                <Skeleton width="32px" height="32px" borderRadius="8px" />
+                                <div style={{ flex: 1 }}>
+                                    <Skeleton width="60%" height="14px" style={{ marginBottom: 6 }} />
+                                    <Skeleton width="40%" height="12px" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 ) : docs.length === 0 ? (
-                    <div className="emptyState">
-                        <div className="emptyIcon">📄</div>
-                        <h2 style={{ fontSize: '1.25rem' }}>No documents yet</h2>
-                        <p className="muted">Upload your first PDF or TXT to start training your assistant.</p>
-                        <button className="button" style={{ width: 'auto', marginTop: 8 }} onClick={() => fileInputRef.current?.click()}>
-                            Upload Now
-                        </button>
+                    <div className="empty-state">
+                        <div className="empty-state-icon">📭</div>
+                        <div className="empty-state-title">No documents yet</div>
+                        <div className="empty-state-sub">Upload PDF, TXT, DOCX, MD, CSV, or HTML to train your assistant.</div>
+                        <button className="btn-primary" style={{ marginTop: 8 }} onClick={() => setModalOpen(true)}>Upload Now</button>
                     </div>
                 ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                        <table className="docsTable">
-                            <thead>
-                                <tr>
-                                    <th>Filename</th>
-                                    <th>Doc ID</th>
-                                    <th>Status</th>
-                                    <th>Uploaded At</th>
-                                    <th style={{ textAlign: 'right' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {docs.map((doc) => (
-                                    <tr key={doc.doc_id || Math.random()}>
-                                        <td style={{ fontWeight: 500 }}>{doc.filename || "Unnamed"}</td>
-                                        <td className="mono" style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                            {doc.doc_id ? doc.doc_id.slice(0, 8) : "—"}...
-                                        </td>
-                                        <td>
-                                            <span className={`badge badge-${doc.status === 'ready' ? 'ready' : doc.status === 'failed' ? 'failed' : 'processing'}`}>
-                                                {(doc.status === 'processing' || doc.status === 'uploaded') && <div className="spinner"></div>}
-                                                {doc.status || "uploaded"}
-                                            </span>
-                                        </td>
-                                        <td className="muted">{formatTime(doc.updated_at)}</td>
-                                        <td style={{ textAlign: 'right' }}>
-                                            <button className="deleteBtn" title="Delete Document" onClick={() => doc.doc_id && handleDelete(doc.doc_id)}>
-                                                🗑️
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    docs.map((doc) => (
+                        <div key={doc.doc_id} className="doc-card">
+                            <div className="doc-icon">📄</div>
+                            <div className="doc-info">
+                                <div className="doc-name">{doc.filename || "Unnamed"}</div>
+                                <div className="doc-meta">{formatTime(doc.updated_at)} · {doc.doc_id?.slice(0, 8)}...</div>
+                            </div>
+                            {statusBadge(doc)}
+                            <div className="doc-actions">
+                                {confirmDelete === doc.doc_id ? (
+                                    <>
+                                        <button className="btn-danger" style={{ padding: "6px 12px", fontSize: "0.75rem" }} onClick={() => handleDelete(doc.doc_id)}>Yes, delete</button>
+                                        <button className="btn-ghost" style={{ padding: "6px 12px", fontSize: "0.75rem" }} onClick={() => setConfirmDelete(null)}>Cancel</button>
+                                    </>
+                                ) : (
+                                    <button className="btn-ghost" style={{ padding: "6px 10px" }} title="Delete" onClick={() => setConfirmDelete(doc.doc_id)}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ))
                 )}
             </div>
 
-            <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".pdf,.txt"
-                onChange={handleFileChange}
-            />
+            {/* Upload Modal */}
+            {modalOpen && (
+                <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setModalOpen(false)}>
+                    <div className="modal">
+                        <h2 className="modal-title">Upload Document</h2>
+                        <div
+                            className={`drop-zone ${dragOver ? "drag-over" : ""}`}
+                            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                            onDragLeave={() => setDragOver(false)}
+                            onDrop={handleFileDrop}
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <div className="drop-zone-icon">📁</div>
+                            <div className="drop-zone-text">Drop file here</div>
+                            <div className="drop-zone-sub">PDF, TXT, DOCX, MD, CSV, HTML · or click to browse</div>
+                        </div>
+                        <input ref={fileInputRef} type="file" accept=".pdf,.txt,.docx,.md,.csv,.html,.htm" style={{ display: "none" }} onChange={handleFileChange} />
+
+                        {selectedFile && (
+                            <div className="selected-file-row">
+                                <span>📄</span>
+                                <span style={{ flex: 1, fontSize: "0.875rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedFile.name}</span>
+                                <span className="muted">{(selectedFile.size / 1024).toFixed(0)} KB</span>
+                            </div>
+                        )}
+
+                        <div className="modal-actions">
+                            <button className="btn-ghost" onClick={() => { setModalOpen(false); setSelectedFile(null); }}>Cancel</button>
+                            <button className="btn-primary" disabled={!selectedFile || uploading} onClick={handleUpload}>
+                                {uploading ? <><span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Uploading...</> : "Upload"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
+

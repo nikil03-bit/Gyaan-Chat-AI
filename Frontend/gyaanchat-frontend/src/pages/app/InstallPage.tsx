@@ -1,172 +1,143 @@
 import { useState } from "react";
-import "../../styles/install.css";
+import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../contexts/ToastContext";
+
+type Tab = "script" | "react" | "iframe";
 
 export default function InstallPage() {
-    const [widgetKey] = useState(localStorage.getItem("gyaanchat_widget_key") || "");
-    const [activeTab, setActiveTab] = useState<"html" | "react">("html");
-    const [showKeyFeedback, setShowKeyFeedback] = useState(false);
-    const [showSnippetFeedback, setShowSnippetFeedback] = useState(false);
+    const { bot } = useAuth();
+    const { showToast } = useToast();
+    const widgetKey = bot?.widget_key || "YOUR_WIDGET_KEY";
+    const [tab, setTab] = useState<Tab>("script");
 
-    const snippet = `<!-- GyaanChat Widget Start -->
+    const SNIPPETS: Record<Tab, string> = {
+        script: `<!-- Add before </body> -->
 <script>
-  window.GYAANCHAT_WIDGET_KEY = "${widgetKey}";
+  window.GyaanChatConfig = {
+    widgetKey: "${widgetKey}",
+    apiBase: "http://localhost:8000"
+  };
 </script>
-<script src="http://127.0.0.1:8000/widget.js" async></script>
-<!-- GyaanChat Widget End -->`;
+<script src="http://localhost:8000/widget.js" defer></script>`,
+        react: `// Install: npm install @gyaanchat/widget
+import { GyaanChatWidget } from "@gyaanchat/widget";
 
-    const reactExample = `import { useEffect } from 'react';
-
-function GyaanChatWidget() {
-  useEffect(() => {
-    window.GYAANCHAT_WIDGET_KEY = "${widgetKey}";
-    const script = document.createElement('script');
-    script.src = "http://127.0.0.1:8000/widget.js";
-    script.async = true;
-    document.body.appendChild(script);
-    
-    return () => {
-      document.body.removeChild(script);
+export default function App() {
+  return (
+    <>
+      {/* Your app */}
+      <GyaanChatWidget
+        widgetKey="${widgetKey}"
+        apiBase="http://localhost:8000"
+      />
+    </>
+  );
+}`,
+        iframe: `<!-- Embed as an iframe -->
+<iframe
+  src="http://localhost:8000/chat-embed?key=${widgetKey}"
+  width="400"
+  height="600"
+  frameborder="0"
+  allow="clipboard-write"
+  style="border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"
+></iframe>`,
     };
-  }, []);
 
-  return null;
-}
-
-export default GyaanChatWidget;`;
-
-    const copyToClipboard = (text: string, setFeedback: (show: boolean) => void) => {
+    function copy(text: string) {
         navigator.clipboard.writeText(text);
-        setFeedback(true);
-        setTimeout(() => setFeedback(false), 1500);
-    };
-
-    if (!widgetKey) {
-        return (
-            <div className="page">
-                <header className="pageHeader">
-                    <h1 className="pageTitle">Install GyaanChat Widget</h1>
-                </header>
-                <div className="errorMessage">
-                    <span>⚠️</span> No widget key found. Please login again.
-                </div>
-            </div>
-        );
+        showToast("Copied to clipboard!", "success");
     }
 
     return (
-        <div className="page installContainer">
-            <header className="pageHeader">
+        <div className="page">
+            <div className="page-header">
                 <div>
-                    <h1 className="pageTitle">Install GyaanChat Widget</h1>
-                    <p className="muted">Copy and paste this snippet into your website</p>
-                </div>
-            </header>
-
-            {/* A) Your Widget Key Section */}
-            <div className="card installSection">
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Your Widget Key</h2>
-                <p className="muted">Use this key to identify your widget in custom integrations.</p>
-                <div className="copyGroup">
-                    <input
-                        className="input copyInput"
-                        readOnly
-                        value={widgetKey}
-                    />
-                    <button
-                        className="button"
-                        style={{ margin: 0, width: "auto" }}
-                        onClick={() => copyToClipboard(widgetKey, setShowKeyFeedback)}
-                    >
-                        Copy
-                    </button>
-                </div>
-                <div className={`copyFeedback ${showKeyFeedback ? "show" : ""}`}>Copied!</div>
-            </div>
-
-            {/* B) Embed Script Section */}
-            <div className="card installSection">
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Embed Script</h2>
-                <p className="muted">Add this code snippet to your website's HTML to enable the chat widget.</p>
-
-                <div className="codeBlockWrapper">
-                    <button
-                        className="copySnippetBtn"
-                        onClick={() => copyToClipboard(snippet, setShowSnippetFeedback)}
-                    >
-                        {showSnippetFeedback ? "Copied!" : "Copy Snippet"}
-                    </button>
-                    <pre className="codeBlock">
-                        <code>{snippet}</code>
-                    </pre>
+                    <h1 className="page-title">Deployment</h1>
+                    <p className="page-subtitle">Embed your AI chatbot on any website</p>
                 </div>
             </div>
 
-            {/* C) Where to paste it Section */}
-            <div className="card installSection">
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Where to paste it</h2>
-
-                <div className="tabGroup">
-                    <button
-                        className={`tabBtn ${activeTab === "html" ? "active" : ""}`}
-                        onClick={() => setActiveTab("html")}
-                    >
-                        HTML Website
-                    </button>
-                    <button
-                        className={`tabBtn ${activeTab === "react" ? "active" : ""}`}
-                        onClick={() => setActiveTab("react")}
-                    >
-                        React Website
-                    </button>
-                </div>
-
-                {activeTab === "html" ? (
-                    <div>
-                        <ol className="instructionList">
-                            <li className="instructionItem">Open your website's <code>index.html</code> or layout file.</li>
-                            <li className="instructionItem">Scroll to the bottom and find the <code>&lt;/body&gt;</code> tag.</li>
-                            <li className="instructionItem">Paste the GyaanChat snippet just before the closing <code>&lt;/body&gt;</code> tag.</li>
-                            <li className="instructionItem">Save and refresh your website.</li>
-                        </ol>
-                        <div className="codeBlockWrapper" style={{ marginTop: 20 }}>
-                            <pre className="codeBlock">
-                                <code>{`<!DOCTYPE html>
-<html>
-  <head>...</head>
-  <body>
-    <!-- Your content -->
-    
-    <!-- Paste here -->
-    ${snippet}
-  </body>
-</html>`}</code>
-                            </pre>
+            <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 20 }}>
+                {/* Left: Code snippets */}
+                <div>
+                    {/* Widget Key */}
+                    <div className="card" style={{ marginBottom: 20 }}>
+                        <h2 style={{ fontSize: "0.9375rem", fontWeight: 600, marginBottom: 12 }}>Your Widget Key</h2>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <code className="mono" style={{ flex: 1, background: "var(--color-bg-input)", padding: "10px 14px", borderRadius: "var(--radius-md)", fontSize: "0.875rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {widgetKey}
+                            </code>
+                            <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={() => copy(widgetKey)}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                Copy
+                            </button>
                         </div>
                     </div>
-                ) : (
-                    <div>
-                        <ol className="instructionList">
-                            <li className="instructionItem">Create a new component (e.g., <code>GyaanChatWidget.tsx</code>).</li>
-                            <li className="instructionItem">Paste the following code into the component.</li>
-                            <li className="instructionItem">Import and include this component in your <code>App.tsx</code> or main layout.</li>
-                        </ol>
-                        <div className="codeBlockWrapper" style={{ marginTop: 20 }}>
-                            <pre className="codeBlock">
-                                <code>{reactExample}</code>
-                            </pre>
+
+                    {/* Tabs */}
+                    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+                        <div className="tabs" style={{ padding: "0 20px", marginBottom: 0, borderBottom: "1px solid var(--color-border)" }}>
+                            {(["script", "react", "iframe"] as Tab[]).map((t) => (
+                                <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
+                                    {t === "script" ? "🏷 Script Tag" : t === "react" ? "⚛️ React" : "🖼 iFrame"}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ padding: 20 }}>
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                                <button className="btn-ghost" style={{ padding: "6px 12px", fontSize: "0.75rem" }} onClick={() => copy(SNIPPETS[tab])}>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                    Copy Code
+                                </button>
+                            </div>
+                            <pre className="code-block">{SNIPPETS[tab]}</pre>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
 
-            {/* D) Widget Preview Section */}
-            <div className="card installSection">
-                <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Widget Preview</h2>
-                <p className="muted">This is a placeholder for your widget's appearance on your site.</p>
-                <div className="previewContainer">
-                    Widget preview will appear here once configured...
+                {/* Right: Preview + Steps */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    {/* Widget Preview */}
+                    <div className="card">
+                        <h2 style={{ fontSize: "0.9375rem", fontWeight: 600, marginBottom: 16 }}>Widget Preview</h2>
+                        <div className="install-preview">
+                            <div className="widget-preview-panel">
+                                <div className="widget-preview-header">💬 AI Assistant</div>
+                                <div className="widget-preview-msgs">
+                                    <div className="widget-preview-msg bot">Hi! How can I help you today?</div>
+                                    <div className="widget-preview-msg user">What are your hours?</div>
+                                    <div className="widget-preview-msg bot">We're open 24/7 — I'm always here!</div>
+                                </div>
+                            </div>
+                            <div className="widget-preview-btn">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Steps */}
+                    <div className="card">
+                        <h2 style={{ fontSize: "0.9375rem", fontWeight: 600, marginBottom: 16 }}>Quick Setup</h2>
+                        {[
+                            { n: "1", text: "Copy your widget key above" },
+                            { n: "2", text: "Choose your integration method (Script / React / iFrame)" },
+                            { n: "3", text: "Paste the code snippet into your website" },
+                            { n: "4", text: "The chat button will appear on your site" },
+                        ].map((step) => (
+                            <div key={step.n} style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+                                <div style={{ width: 24, height: 24, background: "var(--color-accent)", color: "var(--color-accent-fg)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700, flexShrink: 0 }}>
+                                    {step.n}
+                                </div>
+                                <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)", paddingTop: 3 }}>{step.text}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
+
