@@ -197,7 +197,7 @@ export default function TestChatPage() {
                                         : "var(--color-bg-card)",
                                     color: m.role === "user" ? "#fff" : "var(--color-text)",
                                     fontSize: "0.875rem", lineHeight: 1.55,
-                                    border: m.role === "bot" ? "1px solid var(--color-border)" : "none",
+                                    border: m.role === "assistant" ? "1px solid var(--color-border)" : "none",
                                     boxShadow: m.role === "user" ? `0 2px 8px ${color}44` : "0 1px 4px rgba(0,0,0,0.06)",
                                 }}>
                                     <div style={{ fontSize: "0.68rem", fontWeight: 600, opacity: 0.65, marginBottom: 4 }}>

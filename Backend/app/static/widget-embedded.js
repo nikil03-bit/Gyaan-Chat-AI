@@ -11,7 +11,6 @@
   const apiBase = config.apiBase || window.location.origin;
   const widgetKey = config.widgetKey;
   const container = config.container || "body";
-  const embedded = config.embedded === true;
 
   // Generate unique visitor ID
   const getVisitorId = () => {
@@ -52,15 +51,71 @@
       }
 
       .gyaan-chat-header {
-        background: #3b82f6;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         padding: 16px 20px;
         display: flex;
-        justify-content: space-between;
         align-items: center;
+        gap: 12px;
         font-weight: 600;
         font-size: 16px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        flex-shrink: 0;
+      }
+
+      .gyaan-chat-header-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.2);
+        border: 2px solid rgba(255,255,255,0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+
+      .gyaan-chat-header-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .gyaan-chat-header-avatar-icon {
+        width: 18px;
+        height: 18px;
+        fill: white;
+      }
+
+      .gyaan-chat-header-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .gyaan-chat-header-name {
+        font-weight: 700;
+        font-size: 0.9375rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .gyaan-chat-header-status {
+        font-size: 0.72rem;
+        color: rgba(255,255,255,0.75);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 2px;
+      }
+
+      .gyaan-chat-header-status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #4ade80;
+        display: inline-block;
       }
 
       .gyaan-chat-messages {
@@ -77,6 +132,8 @@
         display: flex;
         word-wrap: break-word;
         animation: fadeIn 0.3s ease;
+        gap: 8px;
+        align-items: flex-end;
       }
 
       @keyframes fadeIn {
@@ -98,11 +155,35 @@
         justify-content: flex-end;
       }
 
+      .gyaan-chat-message-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+
+      .gyaan-chat-message-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .gyaan-chat-message-avatar-icon {
+        width: 14px;
+        height: 14px;
+        fill: white;
+      }
+
       .gyaan-chat-message-content {
-        max-width: 75%;
+        max-width: 72%;
         padding: 10px 14px;
-        border-radius: 12px;
-        font-size: 14px;
+        border-radius: 16px;
+        font-size: 0.875rem;
         line-height: 1.5;
         word-break: break-word;
       }
@@ -110,25 +191,27 @@
       .gyaan-chat-message.bot .gyaan-chat-message-content {
         background: white;
         color: #111827;
-        border-bottom-left-radius: 4px;
         border: 1px solid #e5e7eb;
+        border-bottom-left-radius: 4px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
       }
 
       .gyaan-chat-message.user .gyaan-chat-message-content {
-        background: #3b82f6;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         border-bottom-right-radius: 4px;
+        box-shadow: 0 2px 8px rgba(59,130,246,0.4);
       }
 
       .gyaan-chat-typing {
         display: flex;
         gap: 4px;
-        padding: 10px 14px;
+        padding: 12px 16px;
         background: white;
         border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        width: fit-content;
+        border-radius: 16px;
         border-bottom-left-radius: 4px;
+        width: fit-content;
       }
 
       .gyaan-chat-typing-dot {
@@ -162,6 +245,7 @@
         display: flex;
         gap: 8px;
         background: white;
+        flex-shrink: 0;
       }
 
       .gyaan-chat-input {
@@ -181,24 +265,29 @@
       }
 
       .gyaan-chat-send-btn {
-        background: #3b82f6;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 10px 16px;
+        padding: 10px 14px;
         cursor: pointer;
         font-weight: 600;
         font-size: 14px;
-        transition: background 0.2s ease;
+        transition: opacity 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        box-shadow: 0 2px 8px rgba(59,130,246,0.4);
         white-space: nowrap;
       }
 
-      .gyaan-chat-send-btn:hover {
-        background: #2563eb;
+      .gyaan-chat-send-btn:hover:not(:disabled) {
+        opacity: 0.9;
       }
 
       .gyaan-chat-send-btn:disabled {
-        background: #9ca3af;
+        opacity: 0.5;
         cursor: not-allowed;
       }
 
@@ -235,6 +324,7 @@
         name: "GyaanChat Bot",
         greeting: "Hi! How can I help you?",
         theme_color: "#3b82f6",
+        logo_url: null,
       };
     }
   };
@@ -247,17 +337,45 @@
     const messages = [];
     let isWaitingForResponse = false;
 
+    const themeColor = botConfig.theme_color || "#3b82f6";
+
+    // Helpers
+    const escapeHtml = (text) => {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    };
+
     // Create chat container
     const chatDiv = document.createElement("div");
     chatDiv.id = "gyaan-embedded-chat";
+
+    const logoUrl = botConfig.logo_url
+      ? (botConfig.logo_url.startsWith('http') ? botConfig.logo_url : `${apiBase}${botConfig.logo_url}`)
+      : null;
+    const logoHtml = logoUrl
+      ? `<img src="${logoUrl}" alt="${escapeHtml(botConfig.name)}" />`
+      : `<svg class="gyaan-chat-header-avatar-icon" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`;
+
     chatDiv.innerHTML = `
-      <div class="gyaan-chat-header">
-        <span>${escapeHtml(botConfig.name)}</span>
+      <div class="gyaan-chat-header" style="background: linear-gradient(135deg, ${themeColor}, ${themeColor}cc)">
+        <div class="gyaan-chat-header-avatar">${logoHtml}</div>
+        <div class="gyaan-chat-header-info">
+          <div class="gyaan-chat-header-name">${escapeHtml(botConfig.name)}</div>
+          <div class="gyaan-chat-header-status">
+            <span class="gyaan-chat-header-status-dot"></span>Online
+          </div>
+        </div>
       </div>
       <div class="gyaan-chat-messages"></div>
       <div class="gyaan-chat-input-bar">
-        <input type="text" class="gyaan-chat-input" placeholder="Ask something..." autocomplete="off" />
-        <button class="gyaan-chat-send-btn">Send</button>
+        <input type="text" class="gyaan-chat-input" placeholder="Type your message..." autocomplete="off" />
+        <button class="gyaan-chat-send-btn" style="background: linear-gradient(135deg, ${themeColor}, ${themeColor}cc)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+          Send
+        </button>
       </div>
     `;
 
@@ -268,17 +386,18 @@
     const input = chatDiv.querySelector(".gyaan-chat-input");
     const sendBtn = chatDiv.querySelector(".gyaan-chat-send-btn");
 
-    // Helpers
-    const escapeHtml = (text) => {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
-    };
-
     const addMessage = (text, sender) => {
       const msgDiv = document.createElement("div");
       msgDiv.className = `gyaan-chat-message ${sender}`;
-      msgDiv.innerHTML = `<div class="gyaan-chat-message-content">${escapeHtml(text)}</div>`;
+
+      const avatarHtml = sender === "bot"
+        ? `<div class="gyaan-chat-message-avatar">${logoHtml}</div>`
+        : "";
+
+      msgDiv.innerHTML = `
+        ${avatarHtml}
+        <div class="gyaan-chat-message-content">${escapeHtml(text)}</div>
+      `;
       messagesDiv.appendChild(msgDiv);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
       messages.push({ text, sender });
@@ -288,6 +407,7 @@
       const typingDiv = document.createElement("div");
       typingDiv.className = "gyaan-chat-message bot";
       typingDiv.innerHTML = `
+        <div class="gyaan-chat-message-avatar">${logoHtml}</div>
         <div class="gyaan-chat-typing">
           <div class="gyaan-chat-typing-dot"></div>
           <div class="gyaan-chat-typing-dot"></div>
@@ -346,7 +466,10 @@
     });
 
     // Show initial greeting
-    addMessage(botConfig.greeting, "bot");
+    setTimeout(() => {
+      addMessage(botConfig.greeting, "bot");
+    }, 200);
+
     input.focus();
   };
 

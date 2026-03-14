@@ -79,6 +79,14 @@ async def serve_widget_js():
     return {"error": "widget.js not found"}
 
 
+@app.get("/widget-embedded.js")
+async def serve_widget_embedded_js():
+    widget_path = os.path.join(static_dir, "widget-embedded.js")
+    if os.path.exists(widget_path):
+        return FileResponse(widget_path, media_type="application/javascript")
+    return {"error": "widget-embedded.js not found"}
+
+
 @app.get("/chat-embed")
 async def serve_chat_embed(key: str):
     """
