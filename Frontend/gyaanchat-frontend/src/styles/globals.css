@@ -686,20 +686,20 @@ textarea.input {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 24px 20px;
+    padding: 26px 20px;
     border-bottom: 1px solid var(--color-border);
 }
 
 .sidebar-logo {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     background: var(--color-accent);
     color: var(--color-accent-fg);
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.125rem;
+    font-size: 1.25rem;
     font-weight: 800;
     flex-shrink: 0;
 }
@@ -710,31 +710,31 @@ textarea.input {
 }
 
 .sidebar-brand-name {
-    font-size: 1rem;
+    font-size: 1.0625rem;
     font-weight: 700;
     color: var(--color-text-primary);
     line-height: 1.2;
 }
 
 .sidebar-brand-sub {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--color-text-muted);
     font-weight: 500;
 }
 
 .sidebar-nav {
     flex: 1;
-    padding: 16px 12px;
+    padding: 18px 14px;
     overflow-y: auto;
 }
 
 .nav-section-label {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 700;
     color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    padding: 10px 10px 4px;
+    padding: 12px 10px 4px;
     margin-top: 8px;
 }
 
@@ -742,9 +742,9 @@ textarea.input {
     display: flex;
     align-items: center;
     gap: 11px;
-    padding: 11px 12px;
+    padding: 12px 14px;
     border-radius: var(--radius-md);
-    font-size: 0.9rem;
+    font-size: 0.9375rem;
     font-weight: 500;
     color: var(--color-text-secondary);
     cursor: pointer;
@@ -767,8 +767,8 @@ textarea.input {
 }
 
 .nav-item svg {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
     opacity: 0.7;
 }
@@ -779,7 +779,7 @@ textarea.input {
 }
 
 .sidebar-footer {
-    padding: 14px 12px;
+    padding: 16px 14px;
     border-top: 1px solid var(--color-border);
     position: relative;
 }
@@ -788,7 +788,7 @@ textarea.input {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: background var(--transition);
@@ -799,15 +799,15 @@ textarea.input {
 }
 
 .user-avatar {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     background: var(--color-accent);
     color: var(--color-accent-fg);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 700;
     flex-shrink: 0;
 }
@@ -818,7 +818,7 @@ textarea.input {
 }
 
 .user-name {
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     font-weight: 600;
     color: var(--color-text-primary);
     white-space: nowrap;
@@ -827,7 +827,7 @@ textarea.input {
 }
 
 .user-email {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -851,8 +851,8 @@ textarea.input {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 14px;
-    font-size: 0.875rem;
+    padding: 12px 16px;
+    font-size: 0.9375rem;
     color: var(--color-text-primary);
     cursor: pointer;
     transition: background var(--transition);
@@ -890,7 +890,7 @@ textarea.input {
 }
 
 .topbar-title {
-    font-size: 1.0625rem;
+    font-size: 1.125rem;
     font-weight: 600;
     color: var(--color-text-primary);
 }
@@ -902,8 +902,8 @@ textarea.input {
 }
 
 .icon-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
     background: none;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
@@ -921,8 +921,8 @@ textarea.input {
 }
 
 .icon-btn svg {
-    width: 17px;
-    height: 17px;
+    width: 18px;
+    height: 18px;
 }
 
 /* ── Hamburger ── */
