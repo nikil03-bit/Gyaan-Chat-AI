@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 import os
 import time
 from .core.database import engine, Base
@@ -77,6 +77,56 @@ async def serve_widget_js():
     if os.path.exists(widget_path):
         return FileResponse(widget_path, media_type="application/javascript")
     return {"error": "widget.js not found"}
+
+
+@app.get("/chat-embed")
+async def serve_chat_embed(key: str):
+    """
+    Serve the embeddable chat iframe page.
+    Accessed via: http://localhost:8000/chat-embed?key=WIDGET_KEY
+    """
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GyaanChat Widget</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        html, body {{
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: white;
+        }}
+        #chat-widget {{
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }}
+    </style>
+</head>
+<body>
+    <div id="chat-widget"></div>
+    <script>
+        // Configure the widget
+        window.GyaanChatConfig = {{
+            widgetKey: "{key}",
+            apiBase: window.location.origin,
+            container: "#chat-widget",
+            embedded: true
+        }};
+    </script>
+    <script src="/widget-embedded.js" defer></script>
+</body>
+</html>"""
+    return HTMLResponse(content=html_content)
+
 
 
 @app.get("/")
