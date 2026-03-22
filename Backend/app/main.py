@@ -9,6 +9,7 @@ from .core.database import engine, Base
 import app.models  # ensure all models are registered with Base.metadata
 from .api.auth import router as auth_router
 from app.api import documents, chat, bot, analytics
+from app.api.admin import router as admin_router
 
 
 @asynccontextmanager
@@ -58,6 +59,7 @@ app.include_router(documents.router, prefix="/documents")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(bot.router, prefix="/bot")
 app.include_router(analytics.router, prefix="/analytics")
+app.include_router(admin_router)
 
 
 # ── Static files ──────────────────────────────────────────────────────────────

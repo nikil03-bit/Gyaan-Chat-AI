@@ -54,7 +54,7 @@ def register(data: RegisterIn, db: Session = Depends(get_db)):
     token = create_access_token({"sub": user.id, "tenant_id": tenant.id})
     return {
         "token": token,
-        "user": {"id": user.id, "name": user.name, "email": user.email},
+        "user": {"id": user.id, "name": user.name, "email": user.email, "is_superadmin": user.is_superadmin},
         "tenant": {"id": tenant.id, "name": tenant.name},
         "bot": {"id": bot.id, "name": bot.name, "widget_key": bot.widget_key},
     }
@@ -72,10 +72,10 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
 
     bot = db.query(Bot).filter(Bot.tenant_id == user.tenant_id).first()
 
-    token = create_access_token({"sub": user.id, "tenant_id": user.tenant_id})
+    token = create_access_token({"sub": user.id, "tenant_id": user.tenant_id, "is_superadmin": user.is_superadmin})
     return {
         "token": token,
-        "user": {"id": user.id, "name": user.name, "email": user.email},
+        "user": {"id": user.id, "name": user.name, "email": user.email, "is_superadmin": user.is_superadmin},
         "tenant": {"id": user.tenant_id, "name": tenant.name if tenant else ""},
         "bot": {"id": bot.id if bot else None, "name": bot.name if bot else None, "widget_key": bot.widget_key if bot else None},
     }

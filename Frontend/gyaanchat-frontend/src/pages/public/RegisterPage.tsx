@@ -8,6 +8,7 @@ export default function RegisterPage() {
     const [websiteName, setWebsiteName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
@@ -16,8 +17,9 @@ export default function RegisterPage() {
     async function onSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
-        if (!name || !email || !password || !websiteName) { setError("Please fill in all fields."); return; }
+        if (!name || !email || !password || !confirmPassword || !websiteName) { setError("Please fill in all fields."); return; }
         if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+        if (password !== confirmPassword) { setError("Passwords do not match."); return; }
         setLoading(true);
         try {
             const { data } = await api.post("/auth/register", { name, email, password, website_name: websiteName });
@@ -75,6 +77,11 @@ export default function RegisterPage() {
                         <div className="form-group">
                             <label className="label">Password</label>
                             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label">Confirm Password</label>
+                            <input className="input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat your password" autoComplete="new-password" />
                         </div>
 
                         {error && <div className="alert alert-error">{error}</div>}

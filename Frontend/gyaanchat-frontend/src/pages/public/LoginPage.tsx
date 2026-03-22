@@ -19,7 +19,11 @@ export default function LoginPage() {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       login(data);
-      navigate("/app", { replace: true });
+      if (data.user?.is_superadmin) {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/app", { replace: true });
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Invalid email or password.");
     } finally {

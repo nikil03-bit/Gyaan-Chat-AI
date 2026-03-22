@@ -4,6 +4,7 @@ interface AuthUser {
     id: string;
     name: string;
     email: string;
+    is_superadmin?: boolean;
 }
 
 interface AuthTenant {
