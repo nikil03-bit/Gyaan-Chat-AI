@@ -10,3 +10,5 @@ Backend/venv/
 .env
 .env.*
 Backend/uploads/
+codebase
+project_codebase

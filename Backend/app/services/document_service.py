@@ -10,11 +10,20 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def process_document_background(file_path: str, doc_id: str, tenant_id: str, filename: str, bot_id: str = "default"):
     try:
+        print(f"\n[DEBUG] --- Starting processing for doc_id: {doc_id} ---")
+        print(f"[DEBUG] File saved at: {file_path}")
         update_status(doc_id, "processing", tenant_id, filename)
         
         text = extract_text_from_pdf(file_path)
+        if not text:
+            raise ValueError("Extraction returned empty text. File might be scanned/image-only or corrupted.")
+        print(f"[DEBUG] Extracted text length: {len(text)} chars")
+
         chunks = chunk_text(text)
+        print(f"[DEBUG] Number of chunks created: {len(chunks)}")
+        
         embeddings = embed_texts(chunks)
+        print(f"[DEBUG] Number of embeddings created: {len(embeddings)}")
 
         collection = get_collection(tenant_id)
 
@@ -35,9 +44,12 @@ def process_document_background(file_path: str, doc_id: str, tenant_id: str, fil
             metadatas=metadatas,
             ids=ids
         )
+        print(f"[DEBUG] Successfully stored {len(chunks)} chunks in ChromaDB")
+        print(f"[DEBUG] --- Finished processing doc_id: {doc_id} ---\n")
         
         update_status(doc_id, "ready", tenant_id, filename)
     except Exception as e:
+        print(f"[ERROR] Failed to process doc_id {doc_id}: {e}")
         update_status(doc_id, "failed", tenant_id, filename, error=str(e))
 
 def process_document_deletion(tenant_id: str, doc_id: str, filename: str):

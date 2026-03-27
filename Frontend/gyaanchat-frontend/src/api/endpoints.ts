@@ -34,16 +34,8 @@ export async function deleteDocument(tenantId: string, docId: string): Promise<{
 }
 
 export async function chatTenant(tenantId: string, userText: string, options?: { temperature?: number }): Promise<ChatResponse> {
-  // Support both common payload styles and include options if present
-  const payload1 = { tenant_id: tenantId, question: userText, ...options };
-  const payload2 = { tenant_id: tenantId, message: userText, ...options };
-
-  try {
-    const { data } = await api.post("/chat/", payload1);
-    return data;
-  } catch {
-    const { data } = await api.post("/chat/", payload2);
-    return data;
-  }
+  const payload = { tenant_id: tenantId, question: userText, ...options };
+  const { data } = await api.post("/chat/", payload);
+  return data;
 }
 

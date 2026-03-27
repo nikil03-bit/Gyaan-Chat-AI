@@ -10,7 +10,7 @@ from ..models import Bot, ChatHistory, ChatLog
 from app.services.llm import generate_answer
 from app.services.embeddings import embed_texts
 from app.services.vector_store import get_collection
-from app.services.rag import build_prompt
+from app.services.rag import build_prompt, build_smalltalk_prompt
 
 router = APIRouter()
 
@@ -71,25 +71,39 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """RAG chat endpoint — handles greetings, small-talk, and document-based Q&A."""
     msg = req.question.strip()
 
-    # Small-talk / greetings bypass (no RAG needed)
-    if re.match(r"^(hi|hello|hey|hii|hola|good morning|good afternoon|good evening|howdy|greetings)\b", msg.lower()):
-        answer = "Hello! 👋 I am your GyaanChat assistant. How can I help you today?"
-        save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
-        return {"answer": answer, "sources": []}
+    # 1. Routing Layer: Small-talk / Greetings bypassing RAG
+    # We check if the message is short (under ~8 words) and contains conversational keywords.
+    words = msg.split()
+    smalltalk_pattern = r"^(hi|hello|hey|hii|hola|good morning|good afternoon|good evening|howdy|greetings|how are you|how do you do|what's up|whats up|who are you|what are you called|do you know me|thanks|thank you|thx|cool|great|awesome)\b"
+    
+    is_smalltalk = False
+    if len(words) <= 8 and re.match(smalltalk_pattern, msg.lower()):
+        is_smalltalk = True
 
-    if re.match(r"^(thanks|thank you|thx|cool|great|awesome)\b", msg.lower()):
-        answer = "You're welcome! 😊 Is there anything else I can help you with?"
-        save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
-        return {"answer": answer, "sources": []}
-
-    from app.main import RAG_DISTANCE_THRESHOLD
-
-    collection = get_collection(req.tenant_id)
-    if not collection:
-        answer = "I don't have enough information to answer that yet."
+    if is_smalltalk:
+        print("[DEBUG] Message identified as SMALL-TALK. Routing to chat LLM bypassing RAG.")
+        prompt = build_smalltalk_prompt(msg)
+        answer = generate_answer(prompt)
+        
         save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
         save_chat_log(db, req.tenant_id, msg, answer, source_count=0, bot_id=req.bot_id)
         return {"answer": answer, "sources": []}
+
+    # 2. Strict RAG Path
+    print("[DEBUG] Message identified as FACTUAL. Routing to strict RAG database.")
+    from app.main import RAG_DISTANCE_THRESHOLD
+
+    print(f"\n[DEBUG] --- Incoming Chat Request ---")
+    print(f"[DEBUG] Tenant ID: {req.tenant_id}")
+    print(f"[DEBUG] Question: {req.question}")
+
+    collection = get_collection(req.tenant_id)
+    if not collection:
+        print("[DEBUG] No ChromaDB collection found for this tenant.")
+        answer_text = "I don't know."
+        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+        return {"answer": answer_text, "used_sources": False, "sources": []}
 
     query_embedding = embed_texts([req.question])[0]
 
@@ -102,13 +116,25 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     metadatas = results["metadatas"][0] if results["metadatas"] else []
     distances = results["distances"][0] if results["distances"] else []
 
+    print(f"[DEBUG] Retrieved {len(docs)} chunks from ChromaDB.")
+    for i, (doc, meta, dist) in enumerate(zip(docs, metadatas, distances)):
+        print(f"  [{i}] DIST: {dist:.4f} | FILE: {meta.get('filename')} | TEXT: {doc[:100]}...")
+    
+    print(f"[DEBUG] Threshold is: {RAG_DISTANCE_THRESHOLD}")
+
+    # Check if we have at least one document under the threshold
     is_relevant = bool(distances and distances[0] < RAG_DISTANCE_THRESHOLD)
 
     if not docs or not is_relevant:
-        answer = "I couldn't find this information in the provided documents."
-        save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer, "used_sources": False, "sources": []}
+        print("[DEBUG] Context REJECTED (no docs or all distances above threshold).")
+        answer_text = "I don't know."
+        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+        return {"answer": answer_text, "used_sources": False, "sources": []}
+
+    print("[DEBUG] Context ACCEPTED.")
+    filenames = [meta.get("filename") for meta in metadatas]
+    print(f"[DEBUG] Matched chunks from files: {filenames}")
 
     prompt = build_prompt(docs, req.question)
     answer_text = generate_answer(prompt)

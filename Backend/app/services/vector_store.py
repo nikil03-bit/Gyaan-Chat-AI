@@ -1,3 +1,5 @@
+import os
+
 _client = None
 
 def get_client():
@@ -5,9 +7,10 @@ def get_client():
     if _client is None:
         import chromadb
         from chromadb.config import Settings
-        print("Initializing ChromaDB client...")
+        persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma")
+        print(f"Initializing ChromaDB client at: {persist_dir}")
         _client = chromadb.Client(
-            Settings(persist_directory="./chroma", anonymized_telemetry=False)
+            Settings(persist_directory=persist_dir, anonymized_telemetry=False)
         )
     return _client
 

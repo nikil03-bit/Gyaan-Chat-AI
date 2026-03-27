@@ -26,6 +26,18 @@ services:
     depends_on:
       - postgres
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: gyaanchat_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - gyaanchat_ollama_models:/root/.ollama
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
 volumes:
   gyaanchat_pgdata:
-
+  gyaanchat_ollama_models:
