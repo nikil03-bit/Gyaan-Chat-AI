@@ -4,6 +4,16 @@ import { useAuth } from "../../context/AuthContext";
 import { useBotSettings } from "../../contexts/BotSettingsContext";
 import { useNavigate } from "react-router-dom";
 
+const renderMessageText = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+            return <strong key={i}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+    });
+};
+
 type Msg = {
     role: "user" | "assistant";
     text: string;
@@ -203,7 +213,9 @@ export default function TestChatPage() {
                                     <div style={{ fontSize: "0.68rem", fontWeight: 600, opacity: 0.65, marginBottom: 4 }}>
                                         {m.role === "user" ? "You" : botName}
                                     </div>
-                                    {m.text}
+                                    <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                        {renderMessageText(m.text)}
+                                    </div>
                                     {m.sources && m.sources.length > 0 && (
                                         <div className="chat-sources" style={{ marginTop: 8 }}>
                                             {m.sources.map((s, idx) => (

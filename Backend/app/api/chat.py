@@ -1,13 +1,14 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import json
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import re
 from ..core.database import get_db
 from ..models import Bot, ChatHistory, ChatLog
 
-from app.services.llm import generate_answer
+from app.services.llm import generate_answer, generate_answer_stream
 from app.services.embeddings import embed_texts
 from app.services.vector_store import get_collection
 from app.services.rag import build_prompt, build_smalltalk_prompt
@@ -83,12 +84,17 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if is_smalltalk:
         print("[DEBUG] Message identified as SMALL-TALK. Routing to chat LLM bypassing RAG.")
         prompt = build_smalltalk_prompt(msg)
-        answer = generate_answer(prompt)
         
-        save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer, "sources": []}
+        async def smalltalk_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            full_answer = ""
+            for chunk in generate_answer_stream(prompt):
+                full_answer += chunk
+                yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+            save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, full_answer, source_count=0, bot_id=req.bot_id)
 
+        return StreamingResponse(smalltalk_generator(), media_type="text/event-stream")
     # 2. Strict RAG Path
     print("[DEBUG] Message identified as FACTUAL. Routing to strict RAG database.")
     from app.main import RAG_DISTANCE_THRESHOLD
@@ -101,10 +107,14 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not collection:
         print("[DEBUG] No ChromaDB collection found for this tenant.")
         answer_text = "I don't know."
-        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer_text, "used_sources": False, "sources": []}
-
+        
+        async def missing_coll_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': answer_text})}\n\n"
+            save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+            
+        return StreamingResponse(missing_coll_generator(), media_type="text/event-stream")
     query_embedding = embed_texts([req.question])[0]
 
     results = collection.query(
@@ -128,16 +138,19 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not docs or not is_relevant:
         print("[DEBUG] Context REJECTED (no docs or all distances above threshold).")
         answer_text = "I don't know."
-        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer_text, "used_sources": False, "sources": []}
-
+        
+        async def no_docs_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': answer_text})}\n\n"
+            save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+            
+        return StreamingResponse(no_docs_generator(), media_type="text/event-stream")
     print("[DEBUG] Context ACCEPTED.")
     filenames = [meta.get("filename") for meta in metadatas]
     print(f"[DEBUG] Matched chunks from files: {filenames}")
 
     prompt = build_prompt(docs, req.question)
-    answer_text = generate_answer(prompt)
 
     sources = [
         {
@@ -148,10 +161,17 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         for meta in metadatas
     ]
 
-    save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-    save_chat_log(db, req.tenant_id, msg, answer_text, source_count=len(sources), bot_id=req.bot_id)
+    async def rag_generator():
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        full_answer = ""
+        for chunk in generate_answer_stream(prompt):
+            full_answer += chunk
+            yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+            
+        save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
+        save_chat_log(db, req.tenant_id, msg, full_answer, source_count=len(sources), bot_id=req.bot_id)
 
-    return {"answer": answer_text, "used_sources": True, "sources": sources}
+    return StreamingResponse(rag_generator(), media_type="text/event-stream")
 
 
 # ── Widget endpoint (PUBLIC — called from customer websites) ──────────────────
