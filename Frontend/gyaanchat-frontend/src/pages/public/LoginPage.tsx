@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../api/client";
+import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -36,7 +37,7 @@ export default function LoginPage() {
       {/* Left decorative panel */}
       <div className="auth-left">
         <div className="auth-left-logo">
-          <div className="auth-left-logo-mark">G</div>
+          <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
           <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>GyaanChat</span>
         </div>
         <h2 className="auth-left-tagline">Your AI chatbot,<br />trained on your docs.</h2>

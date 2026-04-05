@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-
+import myLogo from "../../assets/gyaanchatlogo.png";
 export default function LandingPage() {
     const navigate = useNavigate();
 
@@ -8,7 +8,7 @@ export default function LandingPage() {
             {/* ── Navbar ── */}
             <nav className="landing-nav">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className="sidebar-logo" style={{ width: 28, height: 28, fontSize: "0.875rem" }}>G</div>
+                    <img src={myLogo} alt="Logo" style={{ width: 44, height: 44, objectFit: "contain" }} />
                     <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--color-text-primary)" }}>GyaanChat</span>
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
@@ -108,7 +108,7 @@ export default function LandingPage() {
             {/* ── Footer ── */}
             <footer className="landing-footer">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className="sidebar-logo" style={{ width: 24, height: 24, fontSize: "0.75rem" }}>G</div>
+                    <img src={myLogo} alt="Logo" style={{ width: 32, height: 32, objectFit: "contain" }} />
                     <span style={{ fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>© 2025 GyaanChat</span>
                 </div>
                 <div style={{ display: "flex", gap: 20 }}>
