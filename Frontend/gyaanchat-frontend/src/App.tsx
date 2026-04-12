@@ -8,6 +8,7 @@ import AdminLayout from "./components/layout/AdminLayout";
 import LandingPage from "./pages/public/LandingPage";
 import LoginPage from "./pages/public/LoginPage";
 import RegisterPage from "./pages/public/RegisterPage";
+import DocsPage from "./pages/public/DocsPage";
 
 import DashboardPage from "./pages/app/AnalyticsPage";
 import DocumentsPage from "./pages/app/DocumentsPage";
@@ -34,6 +35,8 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={token ? <Navigate to={user?.is_superadmin ? "/admin/dashboard" : "/app"} replace /> : <LoginPage />} />
       <Route path="/register" element={token ? <Navigate to="/app" replace /> : <RegisterPage />} />
+      <Route path="/docs" element={<Navigate to="/docs/getting-started" replace />} />
+      <Route path="/docs/:slug" element={<DocsPage />} />
 
       {/* Protected Tenant App */}
       <Route path="/app" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

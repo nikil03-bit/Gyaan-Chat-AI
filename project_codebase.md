@@ -2,10 +2,11 @@
 
 ## Directory Structure
 ```text
-Gyaan-chat/
+Gyaan_ChatAI/
     .gitignore
     codebase.py
     docker-compose.yml
+    PROJECT_REPORT.md
     Backend/
         check_chroma.py
         promote_admin.py
@@ -13,6 +14,7 @@ Gyaan-chat/
         setup_admin.py
         test_chat.py
         test_ollama.py
+        test_output.txt
         test_rag.py
         app/
             auth_utils.py
@@ -90,9 +92,19 @@ Gyaan-chat/
             tsconfig.node.json
             vite.config.ts
             public/
+                gyaanchatlogo.png
                 vite.svg
+                docs-images/
+                    analytics.png
+                    bot-settings.png
+                    conversations.png
+                    dashboard.png
+                    documents.png
+                    install.png
+                    test-chat.png
             src/
                 App.tsx
+                docs.d.ts
                 index.css
                 main.tsx
                 api/
@@ -105,13 +117,19 @@ Gyaan-chat/
                     endpoints.ts
                     types.ts
                 assets/
+                    gyaanchatlogo.png
                     react.svg
                 components/
                     AdminRoute.tsx
                     ProtectedRoute.tsx
+                    docs/
+                        DocsMarkdown.tsx
+                        DocsSidebar.tsx
+                        DocsTOC.tsx
                     layout/
                         AdminLayout.tsx
                         AppLayout.tsx
+                        DocsLayout.tsx
                         Sidebar.tsx
                         Topbar.tsx
                     ui/
@@ -125,6 +143,17 @@ Gyaan-chat/
                 features/
                     auth/
                         ProtectedRoute.tsx
+                    docs/
+                        contentProvider.ts
+                        docs-config.ts
+                        content/
+                            analytics-conversations.md
+                            customizing-your-bot.md
+                            embedding-on-website.md
+                            getting-started.md
+                            testing-your-bot.md
+                            uploading-documents.md
+                            user-guide.md
                 pages/
                     BotsPage.tsx
                     KnowledgePage.tsx
@@ -154,6 +183,7 @@ Gyaan-chat/
                         SettingsPage.tsx
                         TestChatPage.tsx
                     public/
+                        DocsPage.tsx
                         LandingPage.tsx
                         LoginPage.tsx
                         RegisterPage.tsx
@@ -161,6 +191,7 @@ Gyaan-chat/
                     analytics.css
                     App.css
                     chat.css
+                    docs.css
                     documents.css
                     globals.css
                     install.css
@@ -576,6 +607,13 @@ from app.api.admin import router as admin_router
 async def lifespan(app: FastAPI):
     print("Creating DB tables...")
     Base.metadata.create_all(bind=engine)
+    
+    # Pre-load heavy models on startup to prevent cold-start delays
+    from app.services.embeddings import get_model
+    from app.services.vector_store import get_client
+    get_model()   # Pre-loads SentenceTransformer
+    get_client()  # Pre-loads ChromaDB Client
+    
     yield
 
 
@@ -1154,14 +1192,15 @@ def get_widget_config(widget_key: str, db: Session = Depends(get_db)):
 ```py
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+import json
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import re
 from ..core.database import get_db
 from ..models import Bot, ChatHistory, ChatLog
 
-from app.services.llm import generate_answer
+from app.services.llm import generate_answer, generate_answer_stream
 from app.services.embeddings import embed_texts
 from app.services.vector_store import get_collection
 from app.services.rag import build_prompt, build_smalltalk_prompt
@@ -1237,15 +1276,24 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if is_smalltalk:
         print("[DEBUG] Message identified as SMALL-TALK. Routing to chat LLM bypassing RAG.")
         prompt = build_smalltalk_prompt(msg)
-        answer = generate_answer(prompt)
         
-        save_interaction(db, req.tenant_id, msg, answer, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer, "sources": []}
+        async def smalltalk_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            full_answer = ""
+            for chunk in generate_answer_stream(prompt):
+                full_answer += chunk
+                yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+            save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, full_answer, source_count=0, bot_id=req.bot_id)
 
+        return StreamingResponse(smalltalk_generator(), media_type="text/event-stream")
     # 2. Strict RAG Path
     print("[DEBUG] Message identified as FACTUAL. Routing to strict RAG database.")
     from app.main import RAG_DISTANCE_THRESHOLD
+
+    # Override threshold for higher precision if needed (or use env)
+    # Based on logs, good matches are ~0.3-0.45. 
+    EFFECTIVE_THRESHOLD = 0.55 
 
     print(f"\n[DEBUG] --- Incoming Chat Request ---")
     print(f"[DEBUG] Tenant ID: {req.tenant_id}")
@@ -1255,43 +1303,59 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if not collection:
         print("[DEBUG] No ChromaDB collection found for this tenant.")
         answer_text = "I don't know."
-        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer_text, "used_sources": False, "sources": []}
+        
+        async def missing_coll_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': answer_text})}\n\n"
+            save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+            
+        return StreamingResponse(missing_coll_generator(), media_type="text/event-stream")
 
     query_embedding = embed_texts([req.question])[0]
 
+    # Increasing search depth to 5 for better coverage
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=4
+        n_results=5
     )
 
-    docs = results["documents"][0] if results["documents"] else []
-    metadatas = results["metadatas"][0] if results["metadatas"] else []
-    distances = results["distances"][0] if results["distances"] else []
+    all_docs = results["documents"][0] if results["documents"] else []
+    all_metadatas = results["metadatas"][0] if results["metadatas"] else []
+    all_distances = results["distances"][0] if results["distances"] else []
 
-    print(f"[DEBUG] Retrieved {len(docs)} chunks from ChromaDB.")
-    for i, (doc, meta, dist) in enumerate(zip(docs, metadatas, distances)):
-        print(f"  [{i}] DIST: {dist:.4f} | FILE: {meta.get('filename')} | TEXT: {doc[:100]}...")
+    print(f"[DEBUG] Retrieved {len(all_docs)} candidate chunks from ChromaDB.")
     
-    print(f"[DEBUG] Threshold is: {RAG_DISTANCE_THRESHOLD}")
+    # INDIVIDUAL FILTERING: Only keep chunks that are truly relevant
+    filtered_docs = []
+    filtered_metadatas = []
+    
+    for i, (doc, meta, dist) in enumerate(zip(all_docs, all_metadatas, all_distances)):
+        is_match = dist < EFFECTIVE_THRESHOLD
+        status = "ACCEPTED" if is_match else "REJECTED"
+        print(f"  [{i}] DIST: {dist:.4f} | {status} | FILE: {meta.get('filename')} | TEXT: {doc[:60]}...")
+        
+        if is_match:
+            filtered_docs.append(doc)
+            filtered_metadatas.append(meta)
 
-    # Check if we have at least one document under the threshold
-    is_relevant = bool(distances and distances[0] < RAG_DISTANCE_THRESHOLD)
+    if not filtered_docs:
+        print("[DEBUG] Context REJECTED (no chunks passed threshold).")
+        answer_text = "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+        
+        async def no_docs_generator():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': answer_text})}\n\n"
+            save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
+            save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
+            
+        return StreamingResponse(no_docs_generator(), media_type="text/event-stream")
 
-    if not docs or not is_relevant:
-        print("[DEBUG] Context REJECTED (no docs or all distances above threshold).")
-        answer_text = "I don't know."
-        save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-        save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
-        return {"answer": answer_text, "used_sources": False, "sources": []}
+    print(f"[DEBUG] Context ACCEPTED with {len(filtered_docs)} relevant chunks.")
+    filenames = sorted(list(set([meta.get("filename") for meta in filtered_metadatas])))
+    print(f"[DEBUG] Matched files: {filenames}")
 
-    print("[DEBUG] Context ACCEPTED.")
-    filenames = [meta.get("filename") for meta in metadatas]
-    print(f"[DEBUG] Matched chunks from files: {filenames}")
-
-    prompt = build_prompt(docs, req.question)
-    answer_text = generate_answer(prompt)
+    prompt = build_prompt(filtered_docs, req.question)
 
     sources = [
         {
@@ -1299,13 +1363,20 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             "chunk_index": meta.get("chunk_index"),
             "filename": meta.get("filename"),
         }
-        for meta in metadatas
+        for meta in filtered_metadatas
     ]
 
-    save_interaction(db, req.tenant_id, msg, answer_text, req.bot_id, req.session_id)
-    save_chat_log(db, req.tenant_id, msg, answer_text, source_count=len(sources), bot_id=req.bot_id)
+    async def rag_generator():
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        full_answer = ""
+        for chunk in generate_answer_stream(prompt):
+            full_answer += chunk
+            yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+            
+        save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
+        save_chat_log(db, req.tenant_id, msg, full_answer, source_count=len(sources), bot_id=req.bot_id)
 
-    return {"answer": answer_text, "used_sources": True, "sources": sources}
+    return StreamingResponse(rag_generator(), media_type="text/event-stream")
 
 
 # ── Widget endpoint (PUBLIC — called from customer websites) ──────────────────
@@ -2524,21 +2595,46 @@ def login_user(data: LoginIn, db: Session):
 
 ### File: Backend\app\services\chunker.py
 ```py
-def chunk_text(text: str, chunk_size=1200, overlap=200):
+def chunk_text(text: str, chunk_size=1000, overlap=150):
+    """
+    Hybrid Paragraph + Size Chunker.
+    Splits by paragraphs (double-newlines) first, then ensures chunks 
+    don't exceed chunk_size while maintaining semantic cohesion.
+    """
+    # 1. Split into coarse paragraphs
+    paragraphs = text.split("\n\n")
     chunks = []
-    start = 0
-    text_length = len(text)
+    current_chunk = ""
 
-    while start < text_length:
-        end = start + chunk_size
-        chunk = text[start:end].strip()
+    for p in paragraphs:
+        p = p.strip()
+        if not p:
+            continue
 
-        if chunk:
-            chunks.append(chunk)
+        # If adding this paragraph exceeds limit...
+        if len(current_chunk) + len(p) > chunk_size:
+            # Save existing chunk if it's not empty
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            
+            # Start new chunk with overlap from previous if possible
+            overlap_text = current_chunk[-overlap:] if len(current_chunk) > overlap else ""
+            current_chunk = overlap_text + "\n\n" + p if overlap_text else p
+            
+            # If a SINGLE paragraph is strictly too large, we must force-split it
+            while len(current_chunk) > chunk_size:
+                chunks.append(current_chunk[:chunk_size].strip())
+                current_chunk = current_chunk[chunk_size - overlap:]
+        else:
+            # Append paragraph to current chunk
+            if current_chunk:
+                current_chunk += "\n\n" + p
+            else:
+                current_chunk = p
 
-        start = end - overlap
-        if start < 0:
-            start = 0
+    # Append the last chunk
+    if current_chunk:
+        chunks.append(current_chunk.strip())
 
     return chunks
 
@@ -2622,14 +2718,18 @@ def process_document_deletion(tenant_id: str, doc_id: str, filename: str):
 
 ### File: Backend\app\services\embeddings.py
 ```py
+import torch
+
 _model = None
 
 def get_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        print("Loading SentenceTransformer model...")
-        _model = SentenceTransformer("BAAI/bge-small-en", device="cpu")
+        # Check for CUDA (GPU) or fallback to CPU
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Loading SentenceTransformer model ('BAAI/bge-small-en') on {device}...")
+        _model = SentenceTransformer("BAAI/bge-small-en", device=device)
     return _model
 
 def embed_texts(texts: list[str]):
@@ -2643,12 +2743,13 @@ def embed_texts(texts: list[str]):
 ```py
 import requests
 import os
+import json
+from fastapi import HTTPException
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
-from fastapi import HTTPException
 
 def generate_answer(prompt: str) -> str:
     try:
@@ -2667,6 +2768,36 @@ def generate_answer(prompt: str) -> str:
         )
         response.raise_for_status()
         return response.json()["response"].strip()
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to connect to Ollama. Is the model '{MODEL}' available? Error: {str(e)}"
+        )
+
+def generate_answer_stream(prompt: str):
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": MODEL,
+                "prompt": prompt,
+                "stream": True,
+                "keep_alive": -1,
+                "options": {
+                    "temperature": 0.2
+                }
+            },
+            stream=True,
+            timeout=300
+        )
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                decoded = line.decode('utf-8')
+                resp_json = json.loads(decoded)
+                if "response" in resp_json:
+                    yield resp_json["response"]
     except requests.exceptions.RequestException as e:
         raise HTTPException(
             status_code=502,
@@ -2712,25 +2843,26 @@ def build_prompt(context_chunks: list[str], question: str) -> str:
 
     context = context.strip()
 
-    return f"""You are a smart, helpful, and professional AI assistant representing this company.
-Your job is to accurately and clearly answer customer questions using only the information provided below.
+    return f"""You are an exceptional, friendly, and professional Customer Care Support Chatbot representing the company.
+Your primary goal is to assist the customer rapidly and accurately, relying entirely on your internal knowledge base.
 
-BEHAVIOR GUIDELINES:
-- **Be EXTREMELY concise and clear.** Never write long, dense paragraphs. Give the answer as quickly and simply as possible.
-- **Use Formatting:** Whenever there are multiple options, steps, or pieces of information, YOU MUST use a short bulleted list (`- `). Use bold text (`**`) to highlight key terms.
-- Respond naturally and conversationally, like a smart team member — not like a robot.
-- Never say phrases like "based on the context", "according to the document", "the information states", or "from the provided text". Just answer directly.
-- Do not guess, speculate, or use any outside knowledge. Only use facts from the Information section below.
-- If the answer is not found in the information below, reply exactly with: "I don't know."
-- Always maintain a polite, professional, and friendly tone.
+STRICT BEHAVIOR GUIDELINES:
+1. CUSTOMER SUPPORT TONE: Speak directly to the user as a helpful support agent. Always be polite, warm, and professional.
+2. DO NOT MENTION DOCUMENTATION: NEVER use phrases like "according to the document", "based on the information provided", "the uploaded file mentions", or "the text states". Treat the knowledge provided as your own internal memory.
+3. CONVERSATIONAL YET CONCISE: Write naturally and conversationally, using short paragraphs for normal responses. However, if you are listing structured data (such as contact branches, features, or step-by-step instructions), you MUST use a clean bulleted list.
+   Example of structured data:
+   - **Phone:** 123-456-7890
+   - **Email:** care@company.com
+4. HIGHLIGHTING: Highlight key terms, phone numbers, emails, and important entity names with **bold text**.
+5. NO GUESSING: Do not guess or draw on outside knowledge. If the answer cannot be confidently found in your internal knowledge base, say: "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
 
-Information:
+--- Hidden Internal Knowledge Base ---
 {context}
 
-Customer Question:
+--- Customer Message ---
 {question}
 
-Answer:""".strip()
+--- Your Reply ---""".strip()
 
 
 def build_smalltalk_prompt(question: str) -> str:
@@ -2754,12 +2886,9 @@ def get_client():
     global _client
     if _client is None:
         import chromadb
-        from chromadb.config import Settings
         persist_dir = os.getenv("CHROMA_PERSIST_DIR", "./chroma")
         print(f"Initializing ChromaDB client at: {persist_dir}")
-        _client = chromadb.Client(
-            Settings(persist_directory=persist_dir, anonymized_telemetry=False)
-        )
+        _client = chromadb.PersistentClient(path=persist_dir)
     return _client
 
 def get_collection(tenant_id: str):
@@ -2893,9 +3022,9 @@ if __name__ == "__main__":
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/gyaanchatlogo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>gyaanchat-frontend</title>
+    <title>GyaanChat</title>
   </head>
   <body>
     <div id="root"></div>
@@ -2924,7 +3053,10 @@ if __name__ == "__main__":
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.13.0"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.13.0",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -3051,6 +3183,7 @@ import AdminLayout from "./components/layout/AdminLayout";
 import LandingPage from "./pages/public/LandingPage";
 import LoginPage from "./pages/public/LoginPage";
 import RegisterPage from "./pages/public/RegisterPage";
+import DocsPage from "./pages/public/DocsPage";
 
 import DashboardPage from "./pages/app/AnalyticsPage";
 import DocumentsPage from "./pages/app/DocumentsPage";
@@ -3077,6 +3210,8 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={token ? <Navigate to={user?.is_superadmin ? "/admin/dashboard" : "/app"} replace /> : <LoginPage />} />
       <Route path="/register" element={token ? <Navigate to="/app" replace /> : <RegisterPage />} />
+      <Route path="/docs" element={<Navigate to="/docs/getting-started" replace />} />
+      <Route path="/docs/:slug" element={<DocsPage />} />
 
       {/* Protected Tenant App */}
       <Route path="/app" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
@@ -3107,6 +3242,15 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\docs.d.ts
+```ts
+declare module '*.md?raw' {
+  const content: string;
+  export default content;
 }
 
 ```
@@ -3324,9 +3468,67 @@ export async function deleteDocument(tenantId: string, docId: string): Promise<{
 }
 
 export async function chatTenant(tenantId: string, userText: string, options?: { temperature?: number }): Promise<ChatResponse> {
+  let answer = "";
+  let sources: any[] = [];
+  
+  // Consume the stream silently to emulate the old synchronous behavior
+  // while allowing the backend to keep the connection alive via SSE
+  for await (const chunk of streamChatTenant(tenantId, userText, options)) {
+    if (chunk.type === "sources") {
+      sources = chunk.sources;
+    } else if (chunk.type === "content") {
+      answer += chunk.content;
+    }
+  }
+  
+  return { answer, sources, used_sources: sources.length > 0 };
+}
+
+export async function* streamChatTenant(tenantId: string, userText: string, options?: { temperature?: number }) {
   const payload = { tenant_id: tenantId, question: userText, ...options };
-  const { data } = await api.post("/chat/", payload);
-  return data;
+  // Use native fetch to be able to read the stream easily
+  const baseURL = api.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+  
+  const token = localStorage.getItem("gc_token");
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${baseURL}/chat/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Chat request failed: ${errText}`);
+  }
+
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    // Split the chunk by double newlines since it's SSE format
+    const events = chunk.split("\n\n");
+    for (const event of events) {
+      if (event.startsWith("data: ")) {
+        const jsonStr = event.substring(6).trim();
+        if (!jsonStr) continue;
+        try {
+          const data = JSON.parse(jsonStr);
+          yield data;
+        } catch (e) {
+          console.error("Failed to parse SSE JSON:", e, "String was:", jsonStr);
+        }
+      }
+    }
+  }
 }
 
 
@@ -3387,10 +3589,308 @@ import { useAuth } from "../context/AuthContext";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
-  if (!token) return <Navigate to="/login" replace />;
+  if (!token) return <Navigate to="/" replace />;
   return children;
 }
 
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\components\docs\DocsMarkdown.tsx
+```tsx
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSlug from 'rehype-slug';
+import { Lightbulb, Info, AlertTriangle, AlertOctagon } from 'lucide-react';
+import type { ReactNode } from 'react';
+
+interface DocsMarkdownProps {
+  content: string;
+}
+
+// Custom blockquote to handle [!TIP], [!NOTE], [!WARNING], [!CAUTION]
+function CalloutBlock({ children }: { children: ReactNode }) {
+  const text = extractText(children);
+  const firstLine = text.trimStart();
+
+  if (firstLine.startsWith('[!TIP]')) {
+    return (
+      <div className="docs-callout docs-callout-tip">
+        <div className="docs-callout-header">
+          <Lightbulb size={15} />
+          <span>Tip</span>
+        </div>
+        <div className="docs-callout-body">{stripCalloutTag(children, '[!TIP]')}</div>
+      </div>
+    );
+  }
+  if (firstLine.startsWith('[!NOTE]')) {
+    return (
+      <div className="docs-callout docs-callout-note">
+        <div className="docs-callout-header">
+          <Info size={15} />
+          <span>Note</span>
+        </div>
+        <div className="docs-callout-body">{stripCalloutTag(children, '[!NOTE]')}</div>
+      </div>
+    );
+  }
+  if (firstLine.startsWith('[!WARNING]')) {
+    return (
+      <div className="docs-callout docs-callout-warning">
+        <div className="docs-callout-header">
+          <AlertTriangle size={15} />
+          <span>Warning</span>
+        </div>
+        <div className="docs-callout-body">{stripCalloutTag(children, '[!WARNING]')}</div>
+      </div>
+    );
+  }
+  if (firstLine.startsWith('[!CAUTION]')) {
+    return (
+      <div className="docs-callout docs-callout-caution">
+        <div className="docs-callout-header">
+          <AlertOctagon size={15} />
+          <span>Caution</span>
+        </div>
+        <div className="docs-callout-body">{stripCalloutTag(children, '[!CAUTION]')}</div>
+      </div>
+    );
+  }
+  return <blockquote className="docs-blockquote">{children}</blockquote>;
+}
+
+function extractText(node: ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (node && typeof node === 'object' && 'props' in (node as object)) {
+    return extractText((node as { props: { children: ReactNode } }).props.children);
+  }
+  return '';
+}
+
+function stripCalloutTag(children: ReactNode, tag: string): ReactNode {
+  if (Array.isArray(children)) {
+    return children.map((child, i) => {
+      if (i === 0 && typeof child === 'object' && child !== null && 'props' in child) {
+        const p = child as { type: string; props: { children: ReactNode } };
+        if (p.type === 'p') {
+          const text = extractText(p.props.children);
+          const cleaned = text.replace(tag, '').trim();
+          return <p key={i}>{cleaned}</p>;
+        }
+      }
+      return child;
+    });
+  }
+  return children;
+}
+
+export default function DocsMarkdown({ content }: DocsMarkdownProps) {
+  return (
+    <div className="docs-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSlug]}
+        components={{
+          blockquote: ({ children }) => <CalloutBlock>{children}</CalloutBlock>,
+          img: ({ node: _node, ...props }) => (
+            props.src === 'placeholder' ? (
+              <div className="docs-image-placeholder">
+                [ Screenshot: {props.alt} ]
+              </div>
+            ) : (
+              <img {...props} loading="lazy" className="docs-img" />
+            )
+          ),
+          a: ({ node: _node, ...props }) => {
+            const isExternal = props.href?.startsWith('http');
+            return (
+              <a
+                {...props}
+                target={isExternal ? '_blank' : undefined}
+                rel={isExternal ? 'noopener noreferrer' : undefined}
+              />
+            );
+          },
+          table: ({ node: _node, ...props }) => (
+            <div className="docs-table-wrap">
+              <table {...props} />
+            </div>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\components\docs\DocsSidebar.tsx
+```tsx
+import { NavLink, useNavigate, Link } from 'react-router-dom';
+import { docsConfig } from '../../features/docs/docs-config';
+import { ArrowLeft } from 'lucide-react';
+import myLogo from '../../assets/gyaanchatlogo.png';
+
+interface DocsSidebarProps {
+  isOpen: boolean;
+  setIsOpen: (isOpen: boolean) => void;
+}
+
+export default function DocsSidebar({ isOpen, setIsOpen }: DocsSidebarProps) {
+  const navigate = useNavigate();
+
+  return (
+    <>
+      {/* Mobile overlay — reuses the exact same class as the main sidebar */}
+      <div
+        className={`sidebar-overlay ${isOpen ? 'open' : ''}`}
+        onClick={() => setIsOpen(false)}
+      />
+
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+        {/* Brand — identical to main Sidebar.tsx */}
+        <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <img src={myLogo} alt="GyaanChat Logo" className="sidebar-logo" />
+          <div className="sidebar-brand-text">
+            <span className="sidebar-brand-name">GyaanChat</span>
+            <span className="sidebar-brand-sub">Documentation</span>
+          </div>
+        </Link>
+
+        {/* Back to app */}
+        <nav className="sidebar-nav">
+          <button
+            className="nav-item"
+            style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8 }}
+            onClick={() => { navigate(-1); setIsOpen(false); }}
+          >
+            <ArrowLeft size={18} strokeWidth={2} style={{ flexShrink: 0, opacity: 0.7 }} />
+            Back
+          </button>
+
+          {docsConfig.map((category, idx) => (
+            <div key={idx} style={{ marginBottom: 8 }}>
+              <div className="nav-section-label">{category.title}</div>
+              {category.items.map((item) => {
+                const Icon = item.Icon;
+                return (
+                  <NavLink
+                    key={item.slug}
+                    to={`/docs/${item.slug}`}
+                    end
+                    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Icon size={18} strokeWidth={2} />
+                    {item.title}
+                  </NavLink>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+      </aside>
+    </>
+  );
+}
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\components\docs\DocsTOC.tsx
+```tsx
+import { useEffect, useRef, useState } from 'react';
+
+interface TOCItem {
+  id: string;
+  title: string;
+  level: number;
+}
+
+interface DocsTOCProps {
+  content: string;
+}
+
+export default function DocsTOC({ content }: DocsTOCProps) {
+  const [headings, setHeadings] = useState<TOCItem[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    const regex = /^(##|###)\s+(.+)$/gm;
+    let match;
+    const items: TOCItem[] = [];
+
+    while ((match = regex.exec(content)) !== null) {
+      const level = match[1].length;
+      const title = match[2].trim();
+      const id = title
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_]+/g, '-')
+        .replace(/-+/g, '-');
+      items.push({ id, title, level });
+    }
+
+    setHeadings(items);
+  }, [content]);
+
+  useEffect(() => {
+    if (headings.length === 0) return;
+
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+          }
+        }
+      },
+      { rootMargin: '-60px 0px -70% 0px', threshold: 0 }
+    );
+
+    headings.forEach((h) => {
+      const el = document.getElementById(h.id);
+      if (el) observerRef.current?.observe(el);
+    });
+
+    return () => observerRef.current?.disconnect();
+  }, [headings]);
+
+  if (headings.length === 0) return null;
+
+  return (
+    <aside className="docs-toc">
+      <div className="docs-toc-title">On this page</div>
+      <ul className="docs-toc-list">
+        {headings.map((h) => (
+          <li
+            key={h.id}
+            className={`docs-toc-item ${activeId === h.id ? 'active' : ''}`}
+            style={{ paddingLeft: (h.level - 2) * 14 }}
+          >
+            <a
+              href={`#${h.id}`}
+              className={`docs-toc-link ${activeId === h.id ? 'active' : ''}`}
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById(h.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                setActiveId(h.id);
+              }}
+            >
+              {h.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
 
 ```
 
@@ -3413,7 +3913,7 @@ export default function AdminLayout() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
 
-  function handleLogout() { logout(); navigate("/login", { replace: true }); }
+  function handleLogout() { logout(); navigate("/", { replace: true }); }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--color-bg, #0f1117)" }}>
@@ -3491,11 +3991,67 @@ export default function AppLayout() {
 
 ```
 
+### File: Frontend\gyaanchat-frontend\src\components\layout\DocsLayout.tsx
+```tsx
+import React, { useState, useEffect } from 'react';
+import DocsSidebar from '../docs/DocsSidebar';
+import { useLocation } from 'react-router-dom';
+import '../../styles/docs.css';
+
+interface DocsLayoutProps {
+  children: React.ReactNode;
+}
+
+export default function DocsLayout({ children }: DocsLayoutProps) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  return (
+    <div className="app-shell">
+      <DocsSidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+
+      <div className="app-main">
+        {/* Topbar — matches main app exactly */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <button
+              className="icon-btn hamburger"
+              onClick={() => setIsSidebarOpen(true)}
+              aria-label="Open menu"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+            <span className="topbar-title">Documentation</span>
+          </div>
+          <div className="topbar-right" />
+        </header>
+
+        <div className="app-content">
+          <div className="docs-content-container">
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+```
+
 ### File: Frontend\gyaanchat-frontend\src\components\layout\Sidebar.tsx
 ```tsx
 import React, { useState, useRef, useEffect } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import myLogo from "../../assets/gyaanchatlogo.png";
 
 interface NavItemDef {
   to: string;
@@ -3613,7 +4169,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
   function handleLogout() {
     logout();
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true });
   }
 
   return (
@@ -3626,13 +4182,13 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside className={`sidebar ${open ? "open" : ""}`}>
         {/* Brand */}
-        <div className="sidebar-brand">
-          <div className="sidebar-logo">G</div>
+        <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <img src={myLogo} alt="GyaanChat Logo" className="sidebar-logo" />
           <div className="sidebar-brand-text">
             <span className="sidebar-brand-name">GyaanChat</span>
             <span className="sidebar-brand-sub">AI Platform</span>
           </div>
-        </div>
+        </Link>
 
         {/* Navigation */}
         <nav className="sidebar-nav">
@@ -4124,6 +4680,132 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   if (!token) return <Navigate to="/login" replace />;
   return children;
 }
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\features\docs\contentProvider.ts
+```ts
+import gettingStarted from './content/getting-started.md?raw';
+import uploadingDocuments from './content/uploading-documents.md?raw';
+import customizingYourBot from './content/customizing-your-bot.md?raw';
+import testingYourBot from './content/testing-your-bot.md?raw';
+import embeddingOnWebsite from './content/embedding-on-website.md?raw';
+import analyticsConversations from './content/analytics-conversations.md?raw';
+
+const contentMap: Record<string, string> = {
+  'getting-started': gettingStarted,
+  'uploading-documents': uploadingDocuments,
+  'customizing-your-bot': customizingYourBot,
+  'testing-your-bot': testingYourBot,
+  'embedding-on-website': embeddingOnWebsite,
+  'analytics-conversations': analyticsConversations,
+};
+
+export const getContentForSlug = (slug: string): string => {
+  return contentMap[slug] || '';
+};
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\features\docs\docs-config.ts
+```ts
+import type { LucideIcon } from 'lucide-react';
+import {
+  Rocket,
+  FileText,
+  Paintbrush,
+  MessageSquare,
+  Globe,
+  BarChart2,
+} from 'lucide-react';
+
+export interface DocItem {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  Icon: LucideIcon;
+  readTime: string;
+}
+
+export interface DocCategory {
+  title: string;
+  items: DocItem[];
+}
+
+export const docsConfig: DocCategory[] = [
+  {
+    title: 'Getting Started',
+    items: [
+      {
+        id: 'getting-started',
+        title: 'Getting Started',
+        slug: 'getting-started',
+        description: 'A quick overview of GyaanChat and how to get your account ready.',
+        Icon: Rocket,
+        readTime: '3 min read',
+      },
+    ],
+  },
+  {
+    title: 'User Guides',
+    items: [
+      {
+        id: 'uploading-documents',
+        title: 'Uploading Documents',
+        slug: 'uploading-documents',
+        description: "Learn how to upload files and build your bot's knowledge base.",
+        Icon: FileText,
+        readTime: '4 min read',
+      },
+      {
+        id: 'customizing-your-bot',
+        title: 'Customizing Your Bot',
+        slug: 'customizing-your-bot',
+        description: "Change your bot's name, personality, colors, and logo.",
+        Icon: Paintbrush,
+        readTime: '5 min read',
+      },
+      {
+        id: 'testing-your-bot',
+        title: 'Testing Your Bot',
+        slug: 'testing-your-bot',
+        description: 'Preview and test your bot before sharing it with the world.',
+        Icon: MessageSquare,
+        readTime: '3 min read',
+      },
+      {
+        id: 'embedding-on-website',
+        title: 'Embedding on Your Website',
+        slug: 'embedding-on-website',
+        description: 'Add the GyaanChat widget to any website in minutes.',
+        Icon: Globe,
+        readTime: '5 min read',
+      },
+      {
+        id: 'analytics-conversations',
+        title: 'Analytics & Conversations',
+        slug: 'analytics-conversations',
+        description: 'Track usage, view chat history, and understand your users.',
+        Icon: BarChart2,
+        readTime: '4 min read',
+      },
+    ],
+  },
+];
+
+export const allDocItems: DocItem[] = docsConfig.flatMap((c) => c.items);
+
+export const getDocBySlug = (slug: string): DocItem | undefined =>
+  allDocItems.find((item) => item.slug === slug);
+
+export const getAdjacentDocs = (slug: string): { prev: DocItem | null; next: DocItem | null } => {
+  const index = allDocItems.findIndex((item) => item.slug === slug);
+  return {
+    prev: index > 0 ? allDocItems[index - 1] : null,
+    next: index < allDocItems.length - 1 ? allDocItems[index + 1] : null,
+  };
+};
 
 ```
 
@@ -6695,6 +7377,16 @@ import { useAuth } from "../../context/AuthContext";
 import { useBotSettings } from "../../contexts/BotSettingsContext";
 import { useNavigate } from "react-router-dom";
 
+const renderMessageText = (text: string) => {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+            return <strong key={i}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+    });
+};
+
 type Msg = {
     role: "user" | "assistant";
     text: string;
@@ -6894,7 +7586,9 @@ export default function TestChatPage() {
                                     <div style={{ fontSize: "0.68rem", fontWeight: 600, opacity: 0.65, marginBottom: 4 }}>
                                         {m.role === "user" ? "You" : botName}
                                     </div>
-                                    {m.text}
+                                    <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                        {renderMessageText(m.text)}
+                                    </div>
                                     {m.sources && m.sources.length > 0 && (
                                         <div className="chat-sources" style={{ marginTop: 8 }}>
                                             {m.sources.map((s, idx) => (
@@ -6957,10 +7651,115 @@ export default function TestChatPage() {
 
 ```
 
+### File: Frontend\gyaanchat-frontend\src\pages\public\DocsPage.tsx
+```tsx
+import { useParams, Navigate, useNavigate } from 'react-router-dom';
+import DocsMarkdown from '../../components/docs/DocsMarkdown';
+import DocsTOC from '../../components/docs/DocsTOC';
+import { getContentForSlug } from '../../features/docs/contentProvider';
+import { getDocBySlug, getAdjacentDocs } from '../../features/docs/docs-config';
+import DocsLayout from '../../components/layout/DocsLayout';
+import { Clock, ArrowLeft, ArrowRight } from 'lucide-react';
+
+export default function DocsPage() {
+  const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
+
+  if (!slug) {
+    return <Navigate to="/docs/getting-started" replace />;
+  }
+
+  const docInfo = getDocBySlug(slug);
+  const content = getContentForSlug(slug);
+  const { prev, next } = getAdjacentDocs(slug);
+
+  if (!docInfo || !content) {
+    return (
+      <DocsLayout>
+        <div className="docs-not-found">
+          <div className="docs-not-found-icon">404</div>
+          <h2 className="docs-not-found-title">Page not found</h2>
+          <p className="docs-not-found-sub">
+            The article you're looking for doesn't exist or may have been moved.
+          </p>
+          <button className="docs-not-found-btn" onClick={() => navigate('/docs/getting-started')}>
+            Go to Getting Started
+          </button>
+        </div>
+      </DocsLayout>
+    );
+  }
+
+  const Icon = docInfo.Icon;
+
+  return (
+    <DocsLayout>
+      <div className="docs-page-layout">
+        <div className="docs-page-content">
+          {/* Article hero */}
+          <div className="docs-article-hero">
+            <div className="docs-article-icon-wrap">
+              <Icon size={22} strokeWidth={1.75} />
+            </div>
+            <div className="docs-article-meta">
+              <span className="docs-article-readtime">
+                <Clock size={13} />
+                {docInfo.readTime}
+              </span>
+              <p className="docs-article-desc">{docInfo.description}</p>
+            </div>
+          </div>
+
+          {/* Main article content */}
+          <DocsMarkdown content={content} />
+
+          {/* Prev / Next navigation */}
+          <div className="docs-pagination">
+            {prev ? (
+              <button
+                className="docs-pagination-card docs-pagination-prev"
+                onClick={() => navigate(`/docs/${prev.slug}`)}
+              >
+                <div className="docs-pagination-dir">
+                  <ArrowLeft size={14} />
+                  <span>Previous</span>
+                </div>
+                <div className="docs-pagination-title">{prev.title}</div>
+              </button>
+            ) : (
+              <div />
+            )}
+
+            {next ? (
+              <button
+                className="docs-pagination-card docs-pagination-next"
+                onClick={() => navigate(`/docs/${next.slug}`)}
+              >
+                <div className="docs-pagination-dir">
+                  <span>Next</span>
+                  <ArrowRight size={14} />
+                </div>
+                <div className="docs-pagination-title">{next.title}</div>
+              </button>
+            ) : (
+              <div />
+            )}
+          </div>
+        </div>
+
+        {/* Right TOC */}
+        <DocsTOC content={content} />
+      </div>
+    </DocsLayout>
+  );
+}
+
+```
+
 ### File: Frontend\gyaanchat-frontend\src\pages\public\LandingPage.tsx
 ```tsx
 import { useNavigate } from "react-router-dom";
-
+import myLogo from "../../assets/gyaanchatlogo.png";
 export default function LandingPage() {
     const navigate = useNavigate();
 
@@ -6969,10 +7768,11 @@ export default function LandingPage() {
             {/* ── Navbar ── */}
             <nav className="landing-nav">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className="sidebar-logo" style={{ width: 28, height: 28, fontSize: "0.875rem" }}>G</div>
+                    <img src={myLogo} alt="Logo" style={{ width: 44, height: 44, objectFit: "contain" }} />
                     <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--color-text-primary)" }}>GyaanChat</span>
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
+                    <button className="btn-ghost" onClick={() => navigate("/docs")}>Docs</button>
                     <button className="btn-ghost" onClick={() => navigate("/login")}>Login</button>
                     <button className="btn-primary" onClick={() => navigate("/register")}>Get Started</button>
                 </div>
@@ -6985,7 +7785,7 @@ export default function LandingPage() {
                         Build AI Chatbots<br />Trained on Your Docs
                     </h1>
                     <p className="hero-sub">
-                        Upload your documents. Get a smart chatbot in minutes.<br />Embed it anywhere — no code required.
+                        Upload your documents. Get a smart chatbot in minutes.<br />Embed it anywhere no code required.
                     </p>
                     <div className="hero-actions">
                         <button className="btn-primary" style={{ padding: "12px 28px", fontSize: "1rem" }} onClick={() => navigate("/register")}>
@@ -7069,7 +7869,7 @@ export default function LandingPage() {
             {/* ── Footer ── */}
             <footer className="landing-footer">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div className="sidebar-logo" style={{ width: 24, height: 24, fontSize: "0.75rem" }}>G</div>
+                    <img src={myLogo} alt="Logo" style={{ width: 32, height: 32, objectFit: "contain" }} />
                     <span style={{ fontSize: "0.8125rem", color: "var(--color-text-muted)" }}>© 2025 GyaanChat</span>
                 </div>
                 <div style={{ display: "flex", gap: 20 }}>
@@ -7091,6 +7891,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../api/client";
+import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -7125,7 +7926,7 @@ export default function LoginPage() {
       {/* Left decorative panel */}
       <div className="auth-left">
         <div className="auth-left-logo">
-          <div className="auth-left-logo-mark">G</div>
+          <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
           <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>GyaanChat</span>
         </div>
         <h2 className="auth-left-tagline">Your AI chatbot,<br />trained on your docs.</h2>
@@ -7202,6 +8003,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../api/client";
+import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function RegisterPage() {
     const [name, setName] = useState("");
@@ -7237,7 +8039,7 @@ export default function RegisterPage() {
             {/* Left decorative panel */}
             <div className="auth-left">
                 <div className="auth-left-logo">
-                    <div className="auth-left-logo-mark">G</div>
+                    <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
                     <span style={{ fontWeight: 700, fontSize: "1.125rem" }}>GyaanChat</span>
                 </div>
                 <h2 className="auth-left-tagline">Start building your<br />AI chatbot today.</h2>
@@ -7702,6 +8504,558 @@ export default function RegisterPage() {
     40% {
         transform: scale(1);
     }
+}
+
+```
+
+### File: Frontend\gyaanchat-frontend\src\styles\docs.css
+```css
+/* =============================================================
+   GyaanChat — docs.css
+   Only doc-content specific styles.
+   Layout (shell, sidebar, topbar) reuses globals.css classes.
+   ============================================================= */
+
+/* ── Content wrapper ── */
+.docs-content-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 32px 28px 80px;
+  animation: fadeIn 0.15s ease;
+}
+
+/* ── Page layout: article + right TOC ── */
+.docs-page-layout {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+  max-width: 1100px;
+}
+
+.docs-page-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 740px;
+}
+
+/* ── Breadcrumb ── */
+.docs-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  margin-bottom: 24px;
+  color: var(--color-text-muted);
+}
+
+.docs-breadcrumb-link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+.docs-breadcrumb-link:hover {
+  color: var(--color-text-primary);
+}
+
+.docs-breadcrumb-sep {
+  color: var(--color-border-strong);
+}
+
+.docs-breadcrumb-current {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+/* ── Article hero ── */
+.docs-article-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.docs-article-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.docs-article-meta {
+  flex: 1;
+}
+
+.docs-article-readtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.docs-article-desc {
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Markdown Content ── */
+.docs-markdown {
+  font-size: 1rem;
+  line-height: 1.75;
+  color: var(--color-text-primary);
+}
+
+.docs-markdown h1 {
+  font-size: 1.875rem;
+  font-weight: 800;
+  margin-bottom: 20px;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.docs-markdown h2 {
+  font-size: 1.3125rem;
+  font-weight: 700;
+  margin-top: 48px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.docs-markdown h3 {
+  font-size: 1.0625rem;
+  font-weight: 650;
+  margin-top: 28px;
+  margin-bottom: 10px;
+  color: var(--color-text-primary);
+}
+
+.docs-markdown h4 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  color: var(--color-text-secondary);
+}
+
+.docs-markdown p {
+  margin-bottom: 18px;
+  color: var(--color-text-secondary);
+}
+
+.docs-markdown strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.docs-markdown a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-border-strong);
+  transition: text-decoration-color var(--transition);
+}
+
+.docs-markdown a:hover {
+  text-decoration-color: var(--color-accent);
+}
+
+.docs-markdown ul,
+.docs-markdown ol {
+  margin-bottom: 18px;
+  padding-left: 24px;
+  color: var(--color-text-secondary);
+}
+
+.docs-markdown li {
+  margin-bottom: 8px;
+  line-height: 1.7;
+}
+
+/* Inline code */
+.docs-markdown code:not(pre code) {
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 0.8125em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* Code blocks */
+.docs-markdown pre {
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  padding: 18px 22px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 20px 0 28px;
+}
+
+.docs-markdown pre code {
+  color: #e5e7eb;
+  font-size: 0.8375rem;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  line-height: 1.7;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Tables */
+.docs-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 20px 0 28px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.docs-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.docs-markdown th {
+  text-align: left;
+  padding: 11px 16px;
+  background: var(--color-bg-input);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.docs-markdown td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  vertical-align: top;
+  line-height: 1.6;
+}
+
+.docs-markdown tr:last-child td {
+  border-bottom: none;
+}
+
+.docs-markdown tr:hover td {
+  background: var(--color-bg-input);
+}
+
+/* Standard blockquote */
+.docs-blockquote {
+  border-left: 3px solid var(--color-border-strong);
+  padding: 12px 18px;
+  margin: 20px 0;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-input);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-style: italic;
+}
+
+.docs-blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Callout Boxes ── */
+.docs-callout {
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+  margin: 20px 0 24px;
+}
+
+.docs-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.docs-callout-body p {
+  margin: 0;
+  font-size: 0.9125rem;
+  line-height: 1.65;
+}
+
+.docs-callout-body p:not(:last-child) {
+  margin-bottom: 8px;
+}
+
+/* Tip — green */
+.docs-callout-tip {
+  background: #f0fdf4;
+  border-color: #22c55e;
+}
+.docs-callout-tip .docs-callout-header { color: #16a34a; }
+.docs-callout-tip .docs-callout-body,
+.docs-callout-tip .docs-callout-body p { color: #166534; }
+
+/* Note — blue */
+.docs-callout-note {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
+.docs-callout-note .docs-callout-header { color: #2563eb; }
+.docs-callout-note .docs-callout-body,
+.docs-callout-note .docs-callout-body p { color: #1e40af; }
+
+/* Warning — amber */
+.docs-callout-warning {
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+.docs-callout-warning .docs-callout-header { color: #d97706; }
+.docs-callout-warning .docs-callout-body,
+.docs-callout-warning .docs-callout-body p { color: #92400e; }
+
+/* Caution — red */
+.docs-callout-caution {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+.docs-callout-caution .docs-callout-header { color: #dc2626; }
+.docs-callout-caution .docs-callout-body,
+.docs-callout-caution .docs-callout-body p { color: #991b1b; }
+
+/* ── Images ── */
+.docs-img {
+  margin: 24px 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  max-width: 100%;
+  display: block;
+}
+
+.docs-image-placeholder {
+  width: 100%;
+  min-height: 200px;
+  background: var(--color-bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  margin: 24px 0;
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* ── Pagination (Prev / Next) ── */
+.docs-pagination {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--color-border);
+}
+
+.docs-pagination-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+  box-shadow: var(--shadow-sm);
+}
+
+.docs-pagination-card:hover {
+  background: var(--color-bg-input);
+  border-color: var(--color-border-strong);
+}
+
+.docs-pagination-next {
+  text-align: right;
+}
+
+.docs-pagination-dir {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+
+.docs-pagination-next .docs-pagination-dir {
+  justify-content: flex-end;
+}
+
+.docs-pagination-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* ── Right TOC ── */
+.docs-toc {
+  width: 220px;
+  flex-shrink: 0;
+  position: sticky;
+  top: calc(var(--topbar-height) + 32px);
+  max-height: calc(100vh - var(--topbar-height) - 64px);
+  overflow-y: auto;
+}
+
+.docs-toc-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 12px;
+}
+
+.docs-toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 2px solid var(--color-border);
+}
+
+.docs-toc-item {
+  position: relative;
+}
+
+.docs-toc-item.active::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-accent);
+  border-radius: 1px;
+}
+
+.docs-toc-link {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  transition: color var(--transition);
+  padding: 5px 0 5px 14px;
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+.docs-toc-link:hover {
+  color: var(--color-text-primary);
+}
+
+.docs-toc-link.active {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+/* ── Not found ── */
+.docs-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px;
+  text-align: center;
+  gap: 12px;
+}
+
+.docs-not-found-icon {
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--color-border-strong);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.docs-not-found-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.docs-not-found-sub {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  max-width: 360px;
+}
+
+.docs-not-found-btn {
+  margin-top: 8px;
+  padding: 10px 20px;
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+
+.docs-not-found-btn:hover {
+  opacity: 0.85;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .docs-toc {
+    display: none;
+  }
+  .docs-page-layout {
+    display: block;
+  }
+}
+
+@media (max-width: 768px) {
+  .docs-content-container {
+    padding: 20px 16px 64px;
+  }
+
+  .docs-pagination {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-pagination-next {
+    text-align: left;
+  }
+
+  .docs-pagination-next .docs-pagination-dir {
+    justify-content: flex-start;
+  }
 }
 
 ```
@@ -8589,16 +9943,10 @@ textarea.input {
 }
 
 .sidebar-logo {
-    width: 40px;
-    height: 40px;
-    background: var(--color-accent);
-    color: var(--color-accent-fg);
+    width: 56px;
+    height: 56px;
     border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.25rem;
-    font-weight: 800;
+    object-fit: contain;
     flex-shrink: 0;
 }
 
@@ -9185,16 +10533,10 @@ html.dark .auth-left {
 }
 
 .auth-left-logo-mark {
-    width: 40px;
-    height: 40px;
-    background: #fff;
-    color: #111827;
+    width: 56px;
+    height: 56px;
     border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.25rem;
-    font-weight: 800;
+    object-fit: contain;
 }
 
 .auth-left-tagline {

@@ -4,11 +4,14 @@ venv/
 .env
 *.pyc
 Backend/venv/
-*.pyc
 *.pyo
 *.pyd
-.env
 .env.*
 Backend/uploads/
+Backend/chroma/
+Backend/test_output.txt
 codebase
 project_codebase
+*.log
+node_modules/
+dist/

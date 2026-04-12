@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import myLogo from "../../assets/gyaanchatlogo.png";
 
@@ -119,7 +119,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
   function handleLogout() {
     logout();
-    navigate("/login", { replace: true });
+    navigate("/", { replace: true });
   }
 
   return (
@@ -132,13 +132,13 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside className={`sidebar ${open ? "open" : ""}`}>
         {/* Brand */}
-        <div className="sidebar-brand">
+        <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
           <img src={myLogo} alt="GyaanChat Logo" className="sidebar-logo" />
           <div className="sidebar-brand-text">
             <span className="sidebar-brand-name">GyaanChat</span>
             <span className="sidebar-brand-sub">AI Platform</span>
           </div>
-        </div>
+        </Link>
 
         {/* Navigation */}
         <nav className="sidebar-nav">

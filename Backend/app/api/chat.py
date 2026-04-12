@@ -99,6 +99,10 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     print("[DEBUG] Message identified as FACTUAL. Routing to strict RAG database.")
     from app.main import RAG_DISTANCE_THRESHOLD
 
+    # Override threshold for higher precision if needed (or use env)
+    # Based on logs, good matches are ~0.3-0.45. 
+    EFFECTIVE_THRESHOLD = 0.55 
+
     print(f"\n[DEBUG] --- Incoming Chat Request ---")
     print(f"[DEBUG] Tenant ID: {req.tenant_id}")
     print(f"[DEBUG] Question: {req.question}")
@@ -115,29 +119,37 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
             
         return StreamingResponse(missing_coll_generator(), media_type="text/event-stream")
+
     query_embedding = embed_texts([req.question])[0]
 
+    # Increasing search depth to 5 for better coverage
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=4
+        n_results=5
     )
 
-    docs = results["documents"][0] if results["documents"] else []
-    metadatas = results["metadatas"][0] if results["metadatas"] else []
-    distances = results["distances"][0] if results["distances"] else []
+    all_docs = results["documents"][0] if results["documents"] else []
+    all_metadatas = results["metadatas"][0] if results["metadatas"] else []
+    all_distances = results["distances"][0] if results["distances"] else []
 
-    print(f"[DEBUG] Retrieved {len(docs)} chunks from ChromaDB.")
-    for i, (doc, meta, dist) in enumerate(zip(docs, metadatas, distances)):
-        print(f"  [{i}] DIST: {dist:.4f} | FILE: {meta.get('filename')} | TEXT: {doc[:100]}...")
+    print(f"[DEBUG] Retrieved {len(all_docs)} candidate chunks from ChromaDB.")
     
-    print(f"[DEBUG] Threshold is: {RAG_DISTANCE_THRESHOLD}")
+    # INDIVIDUAL FILTERING: Only keep chunks that are truly relevant
+    filtered_docs = []
+    filtered_metadatas = []
+    
+    for i, (doc, meta, dist) in enumerate(zip(all_docs, all_metadatas, all_distances)):
+        is_match = dist < EFFECTIVE_THRESHOLD
+        status = "ACCEPTED" if is_match else "REJECTED"
+        print(f"  [{i}] DIST: {dist:.4f} | {status} | FILE: {meta.get('filename')} | TEXT: {doc[:60]}...")
+        
+        if is_match:
+            filtered_docs.append(doc)
+            filtered_metadatas.append(meta)
 
-    # Check if we have at least one document under the threshold
-    is_relevant = bool(distances and distances[0] < RAG_DISTANCE_THRESHOLD)
-
-    if not docs or not is_relevant:
-        print("[DEBUG] Context REJECTED (no docs or all distances above threshold).")
-        answer_text = "I don't know."
+    if not filtered_docs:
+        print("[DEBUG] Context REJECTED (no chunks passed threshold).")
+        answer_text = "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
         
         async def no_docs_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
@@ -146,11 +158,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
             
         return StreamingResponse(no_docs_generator(), media_type="text/event-stream")
-    print("[DEBUG] Context ACCEPTED.")
-    filenames = [meta.get("filename") for meta in metadatas]
-    print(f"[DEBUG] Matched chunks from files: {filenames}")
 
-    prompt = build_prompt(docs, req.question)
+    print(f"[DEBUG] Context ACCEPTED with {len(filtered_docs)} relevant chunks.")
+    filenames = sorted(list(set([meta.get("filename") for meta in filtered_metadatas])))
+    print(f"[DEBUG] Matched files: {filenames}")
+
+    prompt = build_prompt(filtered_docs, req.question)
 
     sources = [
         {
@@ -158,7 +171,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             "chunk_index": meta.get("chunk_index"),
             "filename": meta.get("filename"),
         }
-        for meta in metadatas
+        for meta in filtered_metadatas
     ]
 
     async def rag_generator():

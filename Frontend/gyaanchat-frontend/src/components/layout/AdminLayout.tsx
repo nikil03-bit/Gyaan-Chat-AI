@@ -15,7 +15,7 @@ export default function AdminLayout() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
 
-  function handleLogout() { logout(); navigate("/login", { replace: true }); }
+  function handleLogout() { logout(); navigate("/", { replace: true }); }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--color-bg, #0f1117)" }}>

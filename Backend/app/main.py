@@ -16,6 +16,13 @@ from app.api.admin import router as admin_router
 async def lifespan(app: FastAPI):
     print("Creating DB tables...")
     Base.metadata.create_all(bind=engine)
+    
+    # Pre-load heavy models on startup to prevent cold-start delays
+    from app.services.embeddings import get_model
+    from app.services.vector_store import get_client
+    get_model()   # Pre-loads SentenceTransformer
+    get_client()  # Pre-loads ChromaDB Client
+    
     yield
 
 

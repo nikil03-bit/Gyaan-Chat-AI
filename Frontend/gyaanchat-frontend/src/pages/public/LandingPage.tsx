@@ -12,6 +12,7 @@ export default function LandingPage() {
                     <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--color-text-primary)" }}>GyaanChat</span>
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
+                    <button className="btn-ghost" onClick={() => navigate("/docs")}>Docs</button>
                     <button className="btn-ghost" onClick={() => navigate("/login")}>Login</button>
                     <button className="btn-primary" onClick={() => navigate("/register")}>Get Started</button>
                 </div>
@@ -24,7 +25,7 @@ export default function LandingPage() {
                         Build AI Chatbots<br />Trained on Your Docs
                     </h1>
                     <p className="hero-sub">
-                        Upload your documents. Get a smart chatbot in minutes.<br />Embed it anywhere — no code required.
+                        Upload your documents. Get a smart chatbot in minutes.<br />Embed it anywhere no code required.
                     </p>
                     <div className="hero-actions">
                         <button className="btn-primary" style={{ padding: "12px 28px", fontSize: "1rem" }} onClick={() => navigate("/register")}>
