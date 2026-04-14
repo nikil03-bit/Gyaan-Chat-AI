@@ -72,6 +72,18 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """RAG chat endpoint — handles greetings, small-talk, and document-based Q&A."""
     msg = req.question.strip()
 
+    history_str = ""
+    if req.session_id:
+        recent_history = db.query(ChatHistory).filter(
+            ChatHistory.tenant_id == req.tenant_id,
+            ChatHistory.session_id == req.session_id
+        ).order_by(ChatHistory.created_at.desc()).limit(6).all()
+        
+        if recent_history:
+            for hist in reversed(recent_history):
+                role = "Customer" if hist.sender == "user" else "Assistant"
+                history_str += f"{role}: {hist.message}\n"
+
     # 1. Routing Layer: Small-talk / Greetings bypassing RAG
     # We check if the message is short (under ~8 words) and contains conversational keywords.
     words = msg.split()
@@ -83,7 +95,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     if is_smalltalk:
         print("[DEBUG] Message identified as SMALL-TALK. Routing to chat LLM bypassing RAG.")
-        prompt = build_smalltalk_prompt(msg)
+        prompt = build_smalltalk_prompt(msg, history_str)
         
         async def smalltalk_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
@@ -122,10 +134,10 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     query_embedding = embed_texts([req.question])[0]
 
-    # Increasing search depth to 5 for better coverage
+    # Increasing search depth to 8 for better coverage across diverse topics
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=5
+        n_results=8
     )
 
     all_docs = results["documents"][0] if results["documents"] else []
@@ -163,16 +175,21 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     filenames = sorted(list(set([meta.get("filename") for meta in filtered_metadatas])))
     print(f"[DEBUG] Matched files: {filenames}")
 
-    prompt = build_prompt(filtered_docs, req.question)
+    prompt = build_prompt(filtered_docs, req.question, history_str)
 
-    sources = [
-        {
-            "doc_id": meta.get("doc_id"),
-            "chunk_index": meta.get("chunk_index"),
-            "filename": meta.get("filename"),
-        }
-        for meta in filtered_metadatas
-    ]
+    unique_sources = []
+    seen_files = set()
+    for meta in filtered_metadatas:
+        filename = meta.get("filename")
+        if filename not in seen_files:
+            seen_files.add(filename)
+            unique_sources.append({
+                "doc_id": meta.get("doc_id"),
+                "chunk_index": meta.get("chunk_index"),
+                "filename": filename,
+            })
+    
+    sources = unique_sources
 
     async def rag_generator():
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"

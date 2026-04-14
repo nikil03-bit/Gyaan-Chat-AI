@@ -8,6 +8,7 @@ def extract_text_from_pdf(file_path: str) -> str:
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
+                page_text = page_text.replace("■", "₹")
                 text += page_text + "\n"
 
         extracted_text = text.strip()

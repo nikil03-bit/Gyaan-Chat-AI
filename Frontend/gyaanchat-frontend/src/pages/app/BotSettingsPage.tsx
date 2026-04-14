@@ -119,11 +119,7 @@ export default function BotSettingsPage() {
                             <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when a visitor opens the widget</span>
                         </div>
 
-                        <div className="form-group">
-                            <label className="label">Fallback Message</label>
-                            <textarea className="input" value={settings?.fallback || ""} onChange={e => patchSettings({ fallback: e.target.value })} rows={2} placeholder="I couldn't find that in your documents." />
-                            <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when no relevant answer is found</span>
-                        </div>
+
 
                         <div className="form-group">
                             <label className="label">Response Style</label>
@@ -237,28 +233,7 @@ export default function BotSettingsPage() {
                                 What can you help me with?
                             </div>
 
-                            {/* Fallback bubble */}
-                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                                <div style={{
-                                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                                    background: logoUrl ? "transparent" : `linear-gradient(135deg, ${color}, ${color}99)`,
-                                    overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-                                }}>
-                                    {logoUrl
-                                        ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
-                                    }
-                                </div>
-                                <div style={{
-                                    maxWidth: "78%", padding: "10px 14px", borderRadius: "16px 16px 16px 4px",
-                                    background: "var(--color-bg-card)", color: "var(--color-text)",
-                                    fontSize: "0.82rem", lineHeight: 1.5,
-                                    border: "1px solid var(--color-border)",
-                                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                                }}>
-                                    {settings?.fallback || "I couldn't find that in your documents."}
-                                </div>
-                            </div>
+
                         </div>
 
                         {/* Input bar */}

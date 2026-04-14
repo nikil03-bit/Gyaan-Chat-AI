@@ -7,8 +7,10 @@ Gyaan_ChatAI/
     codebase.py
     docker-compose.yml
     PROJECT_REPORT.md
+    ShopNest_Knowledge_Base.pdf
     Backend/
         check_chroma.py
+        pdf_content.txt
         promote_admin.py
         requirements.txt
         setup_admin.py
@@ -297,6 +299,15 @@ services:
       - "11434:11434"
     volumes:
       - gyaanchat_ollama_models:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -1264,6 +1275,18 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """RAG chat endpoint — handles greetings, small-talk, and document-based Q&A."""
     msg = req.question.strip()
 
+    history_str = ""
+    if req.session_id:
+        recent_history = db.query(ChatHistory).filter(
+            ChatHistory.tenant_id == req.tenant_id,
+            ChatHistory.session_id == req.session_id
+        ).order_by(ChatHistory.created_at.desc()).limit(6).all()
+        
+        if recent_history:
+            for hist in reversed(recent_history):
+                role = "Customer" if hist.sender == "user" else "Assistant"
+                history_str += f"{role}: {hist.message}\n"
+
     # 1. Routing Layer: Small-talk / Greetings bypassing RAG
     # We check if the message is short (under ~8 words) and contains conversational keywords.
     words = msg.split()
@@ -1275,7 +1298,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     if is_smalltalk:
         print("[DEBUG] Message identified as SMALL-TALK. Routing to chat LLM bypassing RAG.")
-        prompt = build_smalltalk_prompt(msg)
+        prompt = build_smalltalk_prompt(msg, history_str)
         
         async def smalltalk_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
@@ -1314,10 +1337,10 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     query_embedding = embed_texts([req.question])[0]
 
-    # Increasing search depth to 5 for better coverage
+    # Increasing search depth to 8 for better coverage across diverse topics
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=5
+        n_results=8
     )
 
     all_docs = results["documents"][0] if results["documents"] else []
@@ -1355,16 +1378,21 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     filenames = sorted(list(set([meta.get("filename") for meta in filtered_metadatas])))
     print(f"[DEBUG] Matched files: {filenames}")
 
-    prompt = build_prompt(filtered_docs, req.question)
+    prompt = build_prompt(filtered_docs, req.question, history_str)
 
-    sources = [
-        {
-            "doc_id": meta.get("doc_id"),
-            "chunk_index": meta.get("chunk_index"),
-            "filename": meta.get("filename"),
-        }
-        for meta in filtered_metadatas
-    ]
+    unique_sources = []
+    seen_files = set()
+    for meta in filtered_metadatas:
+        filename = meta.get("filename")
+        if filename not in seen_files:
+            seen_files.add(filename)
+            unique_sources.append({
+                "doc_id": meta.get("doc_id"),
+                "chunk_index": meta.get("chunk_index"),
+                "filename": filename,
+            })
+    
+    sources = unique_sources
 
     async def rag_generator():
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
@@ -2819,6 +2847,7 @@ def extract_text_from_pdf(file_path: str) -> str:
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
+                page_text = page_text.replace("■", "₹")
                 text += page_text + "\n"
 
         extracted_text = text.strip()
@@ -2833,10 +2862,11 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 ### File: Backend\app\services\rag.py
 ```py
-def build_prompt(context_chunks: list[str], question: str) -> str:
+def build_prompt(context_chunks: list[str], question: str, history_str: str = "") -> str:
     # Limit context to 3000 chars to keep token usage manageable and responses fast
     context = ""
     for chunk in context_chunks:
+        chunk = chunk.replace("■", "₹")
         if len(context) + len(chunk) > 3000:
             break
         context += chunk + "\n\n"
@@ -2854,7 +2884,14 @@ STRICT BEHAVIOR GUIDELINES:
    - **Phone:** 123-456-7890
    - **Email:** care@company.com
 4. HIGHLIGHTING: Highlight key terms, phone numbers, emails, and important entity names with **bold text**.
-5. NO GUESSING: Do not guess or draw on outside knowledge. If the answer cannot be confidently found in your internal knowledge base, say: "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+5. OFF-TOPIC STRICT REFUSAL: Do not guess or draw on outside knowledge. If the customer asks about topics completely unrelated to this company or its products (e.g., general baking recipes, celebrities, general facts), STRICTLY REFUSE by saying exactly: "I'm sorry, but I can only answer questions related to our company's products and services."
+6. MISSING INFO: If the query is related to the company but the answer cannot be confidently found in your internal knowledge base, say: "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+7. NO SIGNATURES: Do not include ANY sign-offs, signatures, or placeholders like "[Your Name]" or "[Your Friendly Support Agent]". End the response naturally.
+8. NO REPETITIVE GREETINGS: Do not start your response with greetings (like "Hello", "Hi there", or "I'm delighted to help") unless the user explicitly greets you first. Jump straight into answering their question naturally.
+9. STRICT GROUNDING: You MUST rely entirely on the literal text in the Hidden Internal Knowledge Base. Do NOT invent policies or assume personal details like the user's location. Do NOT mix or confuse numbers (e.g. shipping prices, return days). If a specific fact is not explicitly stated, you MUST say you don't know.
+
+--- Previous Conversation ---
+{history_str}
 
 --- Hidden Internal Knowledge Base ---
 {context}
@@ -2862,13 +2899,18 @@ STRICT BEHAVIOR GUIDELINES:
 --- Customer Message ---
 {question}
 
+IMPORTANT: If the exact answer is NOT written in the Hidden Internal Knowledge Base, you MUST reply with exactly: "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+
 --- Your Reply ---""".strip()
 
 
-def build_smalltalk_prompt(question: str) -> str:
+def build_smalltalk_prompt(question: str, history_str: str = "") -> str:
     return f"""You are a friendly, helpful, and professional AI assistant for this company.
 The customer is making casual conversation. Respond warmly, naturally, and briefly (1-2 sentences).
 If appropriate, gently offer to help them with any questions they might have.
+
+--- Previous Conversation ---
+{history_str}
 
 Customer: {question}
 
@@ -4288,12 +4330,6 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
       </div>
 
       <div className="topbar-right">
-        <button className="icon-btn" aria-label="Notifications">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-        </button>
       </div>
     </header>
   );
@@ -6153,11 +6189,7 @@ export default function BotSettingsPage() {
                             <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when a visitor opens the widget</span>
                         </div>
 
-                        <div className="form-group">
-                            <label className="label">Fallback Message</label>
-                            <textarea className="input" value={settings?.fallback || ""} onChange={e => patchSettings({ fallback: e.target.value })} rows={2} placeholder="I couldn't find that in your documents." />
-                            <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when no relevant answer is found</span>
-                        </div>
+
 
                         <div className="form-group">
                             <label className="label">Response Style</label>
@@ -6271,28 +6303,7 @@ export default function BotSettingsPage() {
                                 What can you help me with?
                             </div>
 
-                            {/* Fallback bubble */}
-                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                                <div style={{
-                                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                                    background: logoUrl ? "transparent" : `linear-gradient(135deg, ${color}, ${color}99)`,
-                                    overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-                                }}>
-                                    {logoUrl
-                                        ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
-                                    }
-                                </div>
-                                <div style={{
-                                    maxWidth: "78%", padding: "10px 14px", borderRadius: "16px 16px 16px 4px",
-                                    background: "var(--color-bg-card)", color: "var(--color-text)",
-                                    fontSize: "0.82rem", lineHeight: 1.5,
-                                    border: "1px solid var(--color-border)",
-                                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                                }}>
-                                    {settings?.fallback || "I couldn't find that in your documents."}
-                                </div>
-                            </div>
+
                         </div>
 
                         {/* Input bar */}
