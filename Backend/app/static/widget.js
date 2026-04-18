@@ -6,7 +6,9 @@
   }
 
   const config = window.GyaanChatConfig;
-  const apiBase = config.apiBase || "http://localhost:8000";
+  const scriptEl = document.currentScript || document.querySelector('script[src*="/widget.js"]');
+  const scriptBase = scriptEl?.src ? new URL(scriptEl.src, window.location.href).origin : window.location.origin;
+  const apiBase = config.apiBase || scriptBase;
   const widgetKey = config.widgetKey;
 
   // Generate unique visitor ID
@@ -20,6 +22,33 @@
   };
 
   const visitorId = getVisitorId();
+
+  const parseChatResponse = async (response) => {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("text/event-stream")) {
+      const raw = await response.text();
+      let answer = "";
+
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.startsWith("data: ")) continue;
+        const payloadText = line.slice(6).trim();
+        if (!payloadText) continue;
+        try {
+          const payload = JSON.parse(payloadText);
+          if (payload.type === "content" && typeof payload.content === "string") {
+            answer += payload.content;
+          }
+        } catch (_) {
+          // Ignore malformed stream chunks and continue parsing.
+        }
+      }
+
+      return { answer: answer || "Sorry, I couldn't process that. Please try again." };
+    }
+
+    return await response.json();
+  };
 
   // Create widget styles
   const createStyles = () => {
@@ -238,6 +267,24 @@
         word-break: break-word;
       }
 
+      .gyaan-widget-message-content p {
+        margin: 0;
+      }
+
+      .gyaan-widget-message-content p + p {
+        margin-top: 10px;
+      }
+
+      .gyaan-widget-message-content ul,
+      .gyaan-widget-message-content ol {
+        margin: 8px 0 0;
+        padding-left: 20px;
+      }
+
+      .gyaan-widget-message-content li + li {
+        margin-top: 4px;
+      }
+
       .gyaan-widget-message.bot .gyaan-widget-message-content {
         background: white;
         color: #111827;
@@ -425,6 +472,86 @@
       return div.innerHTML;
     };
 
+    const renderInlineMarkdown = (text) => {
+      const escaped = escapeHtml(text);
+      const withBold = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      return withBold.replace(/\*(.+?)\*/g, "<em>$1</em>");
+    };
+
+    const renderMarkdown = (text) => {
+      const normalized = (text || "").replace(/\r\n/g, "\n");
+      const lines = normalized.split("\n");
+      const html = [];
+      let paragraphLines = [];
+      let inUl = false;
+      let inOl = false;
+
+      const flushParagraph = () => {
+        if (!paragraphLines.length) return;
+        const content = paragraphLines.map(renderInlineMarkdown).join("<br>");
+        html.push(`<p>${content}</p>`);
+        paragraphLines = [];
+      };
+
+      const closeLists = () => {
+        if (inUl) {
+          html.push("</ul>");
+          inUl = false;
+        }
+        if (inOl) {
+          html.push("</ol>");
+          inOl = false;
+        }
+      };
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        const orderedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+        const unorderedMatch = trimmed.match(/^[-*]\s+(.+)$/);
+
+        if (!trimmed) {
+          flushParagraph();
+          closeLists();
+          continue;
+        }
+
+        if (orderedMatch) {
+          flushParagraph();
+          if (inUl) {
+            html.push("</ul>");
+            inUl = false;
+          }
+          if (!inOl) {
+            html.push("<ol>");
+            inOl = true;
+          }
+          html.push(`<li>${renderInlineMarkdown(orderedMatch[1])}</li>`);
+          continue;
+        }
+
+        if (unorderedMatch) {
+          flushParagraph();
+          if (inOl) {
+            html.push("</ol>");
+            inOl = false;
+          }
+          if (!inUl) {
+            html.push("<ul>");
+            inUl = true;
+          }
+          html.push(`<li>${renderInlineMarkdown(unorderedMatch[1])}</li>`);
+          continue;
+        }
+
+        closeLists();
+        paragraphLines.push(line);
+      }
+
+      flushParagraph();
+      closeLists();
+      return html.join("");
+    };
+
     const logoUrl = botConfig.logo_url
       ? (botConfig.logo_url.startsWith('http') ? botConfig.logo_url : `${apiBase}${botConfig.logo_url}`)
       : null;
@@ -473,7 +600,7 @@
 
       msgDiv.innerHTML = `
         ${avatarHtml}
-        <div class="gyaan-widget-message-content">${escapeHtml(text)}</div>
+        <div class="gyaan-widget-message-content">${renderMarkdown(text)}</div>
       `;
       messagesDiv.appendChild(msgDiv);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -519,7 +646,7 @@
         });
 
         if (!response.ok) throw new Error("Chat request failed");
-        const data = await response.json();
+        const data = await parseChatResponse(response);
         typingIndicator.remove();
         addMessage(data.answer, "bot");
       } catch (error) {

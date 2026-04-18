@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
+import { API_BASE } from "../../api/client";
 
 type Tab = "script" | "react" | "iframe";
 
@@ -15,10 +16,10 @@ export default function InstallPage() {
 <script>
   window.GyaanChatConfig = {
     widgetKey: "${widgetKey}",
-    apiBase: "http://localhost:8000"
+        apiBase: "${API_BASE}"
   };
 </script>
-<script src="http://localhost:8000/widget.js" defer></script>`,
+<script src="${API_BASE}/widget.js" defer></script>`,
         react: `// Install: npm install @gyaanchat/widget
 import { GyaanChatWidget } from "@gyaanchat/widget";
 
@@ -28,14 +29,14 @@ export default function App() {
       {/* Your app */}
       <GyaanChatWidget
         widgetKey="${widgetKey}"
-        apiBase="http://localhost:8000"
+                apiBase="${API_BASE}"
       />
     </>
   );
 }`,
         iframe: `<!-- Embed as an iframe -->
 <iframe
-  src="http://localhost:8000/chat-embed?key=${widgetKey}"
+    src="${API_BASE}/chat-embed?key=${widgetKey}"
   width="400"
   height="600"
   frameborder="0"
