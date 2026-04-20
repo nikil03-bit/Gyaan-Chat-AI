@@ -12,6 +12,11 @@ export default function RegisterPage() {
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    
+    // OTP State
+    const [isVerifying, setIsVerifying] = useState(false);
+    const [otp, setOtp] = useState("");
+
     const { login } = useAuth();
     const navigate = useNavigate();
 
@@ -24,10 +29,30 @@ export default function RegisterPage() {
         setLoading(true);
         try {
             const { data } = await api.post("/auth/register", { name, email, password, website_name: websiteName });
+            if (data.verification_required) {
+                setIsVerifying(true);
+            } else {
+                login(data);
+                navigate("/app", { replace: true });
+            }
+        } catch (err: any) {
+            setError(err?.response?.data?.detail || "Registration failed. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    async function onVerify(e: React.FormEvent) {
+        e.preventDefault();
+        setError(null);
+        if (!otp) { setError("Please enter the verification code."); return; }
+        setLoading(true);
+        try {
+            const { data } = await api.post("/auth/verify-email", { email, code: otp });
             login(data);
             navigate("/app", { replace: true });
         } catch (err: any) {
-            setError(err?.response?.data?.detail || "Registration failed. Please try again.");
+            setError(err?.response?.data?.detail || "Verification failed. Please try again.");
         } finally {
             setLoading(false);
         }
@@ -56,48 +81,86 @@ export default function RegisterPage() {
             {/* Right form panel */}
             <div className="auth-right">
                 <div className="auth-form-card">
-                    <h1 className="auth-form-title">Create your account</h1>
-                    <p className="auth-form-sub">Get your AI chatbot up and running in minutes</p>
+                    {!isVerifying ? (
+                        <>
+                            <h1 className="auth-form-title">Create your account</h1>
+                            <p className="auth-form-sub">Get your AI chatbot up and running in minutes</p>
 
-                    <form onSubmit={onSubmit}>
-                        <div className="form-group">
-                            <label className="label">Full Name</label>
-                            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" autoComplete="name" />
-                        </div>
+                            <form onSubmit={onSubmit}>
+                                <div className="form-group">
+                                    <label className="label">Full Name</label>
+                                    <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Doe" autoComplete="name" />
+                                </div>
 
-                        <div className="form-group">
-                            <label className="label">Organization / Website Name</label>
-                            <input className="input" value={websiteName} onChange={(e) => setWebsiteName(e.target.value)} placeholder="My Company" />
-                        </div>
+                                <div className="form-group">
+                                    <label className="label">Organization / Website Name</label>
+                                    <input className="input" value={websiteName} onChange={(e) => setWebsiteName(e.target.value)} placeholder="My Company" />
+                                </div>
 
-                        <div className="form-group">
-                            <label className="label">Email address</label>
-                            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
-                        </div>
+                                <div className="form-group">
+                                    <label className="label">Email address</label>
+                                    <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+                                </div>
 
-                        <div className="form-group">
-                            <label className="label">Password</label>
-                            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
-                        </div>
+                                <div className="form-group">
+                                    <label className="label">Password</label>
+                                    <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 6 characters" autoComplete="new-password" />
+                                </div>
 
-                        <div className="form-group">
-                            <label className="label">Confirm Password</label>
-                            <input className="input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat your password" autoComplete="new-password" />
-                        </div>
+                                <div className="form-group">
+                                    <label className="label">Confirm Password</label>
+                                    <input className="input" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat your password" autoComplete="new-password" />
+                                </div>
 
-                        {error && <div className="alert alert-error">{error}</div>}
+                                {error && <div className="alert alert-error">{error}</div>}
 
-                        <button className="btn-primary" type="submit" disabled={loading} style={{ width: "100%", padding: "11px", fontSize: "0.9375rem", marginTop: 4 }}>
-                            {loading ? (
-                                <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Creating account...</>
-                            ) : "Create Account →"}
-                        </button>
-                    </form>
+                                <button className="btn-primary" type="submit" disabled={loading} style={{ width: "100%", padding: "11px", fontSize: "0.9375rem", marginTop: 4 }}>
+                                    {loading ? (
+                                        <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Creating account...</>
+                                    ) : "Create Account →"}
+                                </button>
+                            </form>
 
-                    <p style={{ textAlign: "center", marginTop: 20, fontSize: "0.875rem", color: "var(--color-text-muted)" }}>
-                        Already have an account?{" "}
-                        <Link to="/login" className="auth-link">Sign in</Link>
-                    </p>
+                            <p style={{ textAlign: "center", marginTop: 20, fontSize: "0.875rem", color: "var(--color-text-muted)" }}>
+                                Already have an account?{" "}
+                                <Link to="/login" className="auth-link">Sign in</Link>
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <h1 className="auth-form-title">Verify your email</h1>
+                            <p className="auth-form-sub">We sent a 6-digit code to <strong>{email}</strong></p>
+
+                            <form onSubmit={onVerify}>
+                                <div className="form-group">
+                                    <label className="label">Verification Code</label>
+                                    <input 
+                                        className="input" 
+                                        value={otp} 
+                                        onChange={(e) => setOtp(e.target.value)} 
+                                        placeholder="123456" 
+                                        maxLength={6}
+                                        style={{ fontSize: "1.5rem", letterSpacing: "4px", textAlign: "center", padding: "12px" }}
+                                    />
+                                </div>
+
+                                {error && <div className="alert alert-error">{error}</div>}
+
+                                <button className="btn-primary" type="submit" disabled={loading} style={{ width: "100%", padding: "11px", fontSize: "0.9375rem", marginTop: 4 }}>
+                                    {loading ? (
+                                        <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Verifying...</>
+                                    ) : "Verify & Complete Signup"}
+                                </button>
+                            </form>
+                            
+                            <p style={{ textAlign: "center", marginTop: 20, fontSize: "0.875rem", color: "var(--color-text-muted)" }}>
+                                Didn't receive the code?{" "}
+                                <button type="button" onClick={onSubmit} className="auth-link" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "inherit" }}>
+                                    Resend code
+                                </button>
+                            </p>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

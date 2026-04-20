@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
+import { Settings, Edit2, MessageSquare, Send, Loader2 } from "lucide-react";
 import { chatTenant } from "../../api/endpoints";
 import { useAuth } from "../../context/AuthContext";
 import { useBotSettings } from "../../contexts/BotSettingsContext";
@@ -84,8 +85,9 @@ export default function TestChatPage() {
                     <h1 className="page-title">Chat Preview</h1>
                     <p className="page-subtitle">Live test of your AI assistant — reflects your Bot Settings</p>
                 </div>
-                <button className="btn-ghost" style={{ fontSize: "0.82rem" }} onClick={() => navigate("/app/bot-settings")}>
-                    ⚙ Edit Bot Settings
+                <button className="btn-ghost" style={{ fontSize: "0.82rem", gap: 6 }} onClick={() => navigate("/app/bot-settings")}>
+                    <Settings size={14} />
+                    Edit Bot Settings
                 </button>
             </div>
 
@@ -107,7 +109,7 @@ export default function TestChatPage() {
                         }}>
                             {logoUrl
                                 ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                : <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+                                : <MessageSquare size={22} fill="white" />
                             }
                         </div>
                         <div>
@@ -148,8 +150,9 @@ export default function TestChatPage() {
                     )}
 
                     <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--color-border)" }}>
-                        <button className="btn-ghost" style={{ width: "100%", fontSize: "0.8rem", justifyContent: "center" }} onClick={() => navigate("/app/bot-settings")}>
-                            ✏ Edit in Bot Settings
+                        <button className="btn-ghost" style={{ width: "100%", fontSize: "0.8rem", justifyContent: "center", gap: 6 }} onClick={() => navigate("/app/bot-settings")}>
+                            <Edit2 size={13} />
+                            Edit in Bot Settings
                         </button>
                     </div>
                 </div>
@@ -166,7 +169,7 @@ export default function TestChatPage() {
                         }}>
                             {logoUrl
                                 ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+                                : <MessageSquare size={18} fill="white" stroke="white" />
                             }
                         </div>
                         <div>
@@ -195,7 +198,7 @@ export default function TestChatPage() {
                                     }}>
                                         {logoUrl
                                             ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                            : <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+                                            : <MessageSquare size={14} fill="white" stroke="white" />
                                         }
                                     </div>
                                 )}
@@ -229,7 +232,7 @@ export default function TestChatPage() {
                         {busy && (
                             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: `linear-gradient(135deg, ${color}, ${color}99)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+                                    <MessageSquare size={14} fill="white" stroke="white" />
                                 </div>
                                 <div className="chat-bubble bot" style={{ padding: "12px 16px" }}>
                                     <div className="typing-dots"><span /><span /><span /></div>
@@ -263,10 +266,8 @@ export default function TestChatPage() {
                                 transition: "opacity 0.15s",
                             }}
                         >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                            </svg>
-                            {busy ? "…" : "Send"}
+                            {busy ? <Loader2 size={16} className="spinner" /> : <Send size={16} />}
+                            {busy ? "Thinking" : "Send"}
                         </button>
                     </div>
                 </div>

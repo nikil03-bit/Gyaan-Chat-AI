@@ -14,6 +14,14 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     is_superadmin: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Email verification fields
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    verification_code: Mapped[str] = mapped_column(String, nullable=True)
+
+    # Password Reset fields
+    reset_code: Mapped[str] = mapped_column(String, nullable=True)
+    reset_code_expires: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

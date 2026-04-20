@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Inbox, FileText, File, UploadCloud } from "lucide-react";
 import { uploadDocument, getDocStatus, listDocuments, deleteDocument } from "../../api/endpoints";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
@@ -153,7 +154,7 @@ export default function DocumentsPage() {
                     </div>
                 ) : docs.length === 0 ? (
                     <div className="empty-state">
-                        <div className="empty-state-icon">📭</div>
+                        <div className="empty-state-icon"><Inbox size={48} /></div>
                         <div className="empty-state-title">No documents yet</div>
                         <div className="empty-state-sub">Upload PDF, TXT, DOCX, MD, CSV, or HTML to train your assistant.</div>
                         <button className="btn-primary" style={{ marginTop: 8 }} onClick={() => setModalOpen(true)}>Upload Now</button>
@@ -161,7 +162,7 @@ export default function DocumentsPage() {
                 ) : (
                     docs.map((doc) => (
                         <div key={doc.doc_id} className="doc-card">
-                            <div className="doc-icon">📄</div>
+                            <div className="doc-icon"><FileText size={20} /></div>
                             <div className="doc-info">
                                 <div className="doc-name">{doc.filename || "Unnamed"}</div>
                                 <div className="doc-meta">{formatTime(doc.updated_at)} · {doc.doc_id?.slice(0, 8)}...</div>
@@ -196,7 +197,7 @@ export default function DocumentsPage() {
                             onDrop={handleFileDrop}
                             onClick={() => fileInputRef.current?.click()}
                         >
-                            <div className="drop-zone-icon">📁</div>
+                            <div className="drop-zone-icon"><UploadCloud size={40} /></div>
                             <div className="drop-zone-text">Drop file here</div>
                             <div className="drop-zone-sub">PDF, TXT, DOCX, MD, CSV, HTML · or click to browse</div>
                         </div>
@@ -204,7 +205,7 @@ export default function DocumentsPage() {
 
                         {selectedFile && (
                             <div className="selected-file-row">
-                                <span>📄</span>
+                                <File size={16} />
                                 <span style={{ flex: 1, fontSize: "0.875rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedFile.name}</span>
                                 <span className="muted">{(selectedFile.size / 1024).toFixed(0)} KB</span>
                             </div>

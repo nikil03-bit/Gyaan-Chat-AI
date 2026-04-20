@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Tag, Code, Frame, MessageSquare, Copy } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import { API_BASE } from "../../api/client";
@@ -70,7 +71,7 @@ export default function App() {
                                 {widgetKey}
                             </code>
                             <button className="btn-ghost" style={{ flexShrink: 0 }} onClick={() => copy(widgetKey)}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                <Copy size={14} />
                                 Copy
                             </button>
                         </div>
@@ -81,14 +82,14 @@ export default function App() {
                         <div className="tabs" style={{ padding: "0 20px", marginBottom: 0, borderBottom: "1px solid var(--color-border)" }}>
                             {(["script", "react", "iframe"] as Tab[]).map((t) => (
                                 <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-                                    {t === "script" ? "🏷 Script Tag" : t === "react" ? "⚛️ React" : "🖼 iFrame"}
+                                    {t === "script" ? <><Tag size={14} /> Script Tag</> : t === "react" ? <><Code size={14} /> React</> : <><Frame size={14} /> iFrame</>}
                                 </button>
                             ))}
                         </div>
                         <div style={{ padding: 20 }}>
                             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
                                 <button className="btn-ghost" style={{ padding: "6px 12px", fontSize: "0.75rem" }} onClick={() => copy(SNIPPETS[tab])}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                                    <Copy size={12} />
                                     Copy Code
                                 </button>
                             </div>
@@ -104,7 +105,7 @@ export default function App() {
                         <h2 style={{ fontSize: "0.9375rem", fontWeight: 600, marginBottom: 16 }}>Widget Preview</h2>
                         <div className="install-preview">
                             <div className="widget-preview-panel">
-                                <div className="widget-preview-header">💬 AI Assistant</div>
+                                <div className="widget-preview-header"><MessageSquare size={14} fill="currentColor" /> AI Assistant</div>
                                 <div className="widget-preview-msgs">
                                     <div className="widget-preview-msg bot">Hi! How can I help you today?</div>
                                     <div className="widget-preview-msg user">What are your hours?</div>
@@ -112,9 +113,7 @@ export default function App() {
                                 </div>
                             </div>
                             <div className="widget-preview-btn">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                </svg>
+                                <MessageSquare size={22} fill="white" stroke="white" />
                             </div>
                         </div>
                     </div>

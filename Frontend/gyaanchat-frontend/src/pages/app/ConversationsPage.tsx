@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { MessageSquare, ChevronDown } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../api/client";
 import Skeleton from "../../components/ui/Skeleton";
@@ -75,7 +76,7 @@ export default function ConversationsPage() {
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="empty-state">
-                        <div className="empty-state-icon">💬</div>
+                        <div className="empty-state-icon"><MessageSquare size={48} /></div>
                         <div className="empty-state-title">{search ? "No results found" : "No conversations yet"}</div>
                         <div className="empty-state-sub">{search ? "Try a different search term." : "Start testing your bot to see conversations here."}</div>
                     </div>
@@ -107,9 +108,7 @@ export default function ConversationsPage() {
                                         </td>
                                         <td className="muted">{timeAgo(log.created_at)}</td>
                                         <td style={{ textAlign: "right" }}>
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform: expanded === i ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }}>
-                                                <polyline points="6 9 12 15 18 9" />
-                                            </svg>
+                                            <ChevronDown size={14} style={{ transform: expanded === i ? "rotate(180deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }} />
                                         </td>
                                     </tr>
                                     {expanded === i && (

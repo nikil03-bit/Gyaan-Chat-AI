@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { MessageSquare, FileText, Rocket, Check, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../api/client";
@@ -77,7 +78,10 @@ export default function DashboardPage() {
             {/* Header */}
             <div className="page-header">
                 <div>
-                    <h1 className="page-title">Welcome back, {user?.name?.split(" ")[0] || "there"} 👋</h1>
+                    <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        Welcome back, {user?.name?.split(" ")[0] || "there"}
+                        <Sparkles size={24} className="text-primary" style={{ color: "var(--color-primary)" }} />
+                    </h1>
                     <p className="page-subtitle">Manage your AI chatbot platform</p>
                 </div>
             </div>
@@ -109,7 +113,7 @@ export default function DashboardPage() {
                         </div>
                     ) : recent.length === 0 ? (
                         <div className="empty-state" style={{ padding: "40px 24px" }}>
-                            <div className="empty-state-icon">💬</div>
+                            <div className="empty-state-icon"><MessageSquare size={44} /></div>
                             <div className="empty-state-title">No conversations yet</div>
                             <div className="empty-state-sub">Start testing your bot to see history here.</div>
                         </div>
@@ -145,9 +149,9 @@ export default function DashboardPage() {
                         <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: 16 }}>Quick Actions</h2>
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             {[
-                                { label: "Upload Document", icon: "📄", to: "/app/documents" },
-                                { label: "Test Your Bot", icon: "💬", to: "/app/test-chat" },
-                                { label: "Get Embed Code", icon: "🚀", to: "/app/install" },
+                                { label: "Upload Document", icon: <FileText size={16} />, to: "/app/documents" },
+                                { label: "Test Your Bot", icon: <MessageSquare size={16} />, to: "/app/test-chat" },
+                                { label: "Get Embed Code", icon: <Rocket size={16} />, to: "/app/install" },
                             ].map((a) => (
                                 <button
                                     key={a.to}
@@ -178,7 +182,7 @@ export default function DashboardPage() {
                                         {bot.widget_key}
                                     </code>
                                     <button className="btn-ghost" style={{ padding: "6px 10px", fontSize: "0.75rem" }} onClick={copyWidgetKey}>
-                                        {copied ? "✓" : "Copy"}
+                                        {copied ? <Check size={14} /> : "Copy"}
                                     </button>
                                 </div>
                             </div>

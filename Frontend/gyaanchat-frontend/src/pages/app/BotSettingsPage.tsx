@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Sparkles } from "lucide-react";
 import { useToast } from "../../contexts/ToastContext";
 import { useBotSettings } from "../../contexts/BotSettingsContext";
 
@@ -247,8 +248,11 @@ export default function BotSettingsPage() {
                         </div>
 
                         {/* Footer note */}
-                        <div style={{ padding: "8px 14px", background: "var(--color-bg)", borderTop: "1px solid var(--color-border)", textAlign: "center" }}>
-                            <span style={{ fontSize: "0.7rem", color: "var(--color-text-muted)" }}>✦ Updates live as you edit · Go to <strong>Chat Preview</strong> to test for real</span>
+                        <div className="page" style={{ padding: "8px 14px", background: "var(--color-bg)", borderTop: "1px solid var(--color-border)", textAlign: "center" }}>
+                            <span style={{ fontSize: "0.7rem", color: "var(--color-text-muted)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                                <Sparkles size={10} />
+                                <span>Updates live as you edit · Go to <strong>Chat Preview</strong> to test for real</span>
+                            </span>
                         </div>
                     </div>
                 </div>
