@@ -21,11 +21,9 @@ import ProfilePage from "./pages/app/ProfilePage";
 import BotSettingsPage from "./pages/app/BotSettingsPage";
 
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
-import AdminTenantsPage from "./pages/admin/AdminTenantsPage";
-import AdminUsersPage from "./pages/admin/AdminUsersPage";
+import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
 import AdminBotsPage from "./pages/admin/AdminBotsPage";
 import AdminDocumentsPage from "./pages/admin/AdminDocumentsPage";
-import AdminSystemPage from "./pages/admin/AdminSystemPage";
 
 export default function App() {
   const { token, user } = useAuth();
@@ -56,11 +54,9 @@ export default function App() {
         <Route element={<AdminLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard"     element={<AdminDashboardPage />} />
-          <Route path="tenants"       element={<AdminTenantsPage />} />
-          <Route path="users"         element={<AdminUsersPage />} />
+          <Route path="accounts"      element={<AdminAccountsPage />} />
           <Route path="bots"          element={<AdminBotsPage />} />
           <Route path="documents"     element={<AdminDocumentsPage />} />
-          <Route path="system"        element={<AdminSystemPage />} />
         </Route>
       </Route>
 

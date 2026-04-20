@@ -30,3 +30,27 @@ def list_documents(_: dict = Depends(verify_admin)):
         pass
     docs.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return docs
+
+@router.get("/{doc_id}/download")
+def download_document(doc_id: str, _: dict = Depends(verify_admin)):
+    from app.api.documents import STATUS_DIR, UPLOAD_DIR
+    from fastapi.responses import FileResponse
+    from fastapi import HTTPException
+    
+    status_path = os.path.join(STATUS_DIR, f"{doc_id}.json")
+    if not os.path.exists(status_path):
+         raise HTTPException(status_code=404, detail="Document not found")
+         
+    with open(status_path) as f:
+         d = json.load(f)
+         
+    fname = d.get("filename", "document.pdf")
+    safe_fname = fname.replace(" ", "_")
+    
+    file_path = os.path.join(UPLOAD_DIR, f"{doc_id}_{safe_fname}")
+    if not os.path.exists(file_path):
+         file_path = os.path.join(UPLOAD_DIR, f"{doc_id}_{fname}")
+         if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found on disk")
+            
+    return FileResponse(file_path, filename=fname)

@@ -1,14 +1,12 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Bot, Building2, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Bot, Building2, FileText, LayoutDashboard } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const NAV = [
   { to: "/admin/dashboard",      icon: LayoutDashboard, label: "Dashboard"     },
-  { to: "/admin/tenants",        icon: Building2,       label: "Tenants"       },
-  { to: "/admin/users",          icon: Users,           label: "Users"         },
+  { to: "/admin/accounts",       icon: Building2,       label: "Accounts"      },
   { to: "/admin/bots",           icon: Bot,             label: "Bots"          },
   { to: "/admin/documents",      icon: FileText,        label: "Documents"     },
-  { to: "/admin/system",         icon: Settings,        label: "System"        },
 ];
 
 export default function AdminLayout() {
