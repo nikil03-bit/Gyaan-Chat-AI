@@ -10,6 +10,8 @@ export interface BotSettings {
     temperature: string;
     widget_key: string;
     logo_url?: string | null;
+    support_email?: string;
+    support_phone?: string;
 }
 
 export interface BotSettingsUpdate {
@@ -19,7 +21,10 @@ export interface BotSettingsUpdate {
     theme_color?: string;
     temperature?: string;
     logo_url?: string | null;
+    support_email?: string;
+    support_phone?: string;
 }
+
 
 export async function getBotSettings(tenantId: string): Promise<BotSettings> {
     const { data } = await api.get(`/bot/settings?tenant_id=${encodeURIComponent(tenantId)}`);

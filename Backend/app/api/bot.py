@@ -12,8 +12,7 @@ router = APIRouter()
 LOGO_DIR = os.path.join("uploads", "logos")
 os.makedirs(LOGO_DIR, exist_ok=True)
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
+# ── Schemas
 class BotSettingsUpdate(BaseModel):
     name: Optional[str] = None
     greeting: Optional[str] = None
@@ -21,9 +20,12 @@ class BotSettingsUpdate(BaseModel):
     theme_color: Optional[str] = None
     temperature: Optional[str] = None
     logo_url: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+
+# ── Helpers 
 
 def _get_or_create_bot(tenant_id: str, db: Session) -> Bot:
     bot = db.query(Bot).filter(Bot.tenant_id == tenant_id).first()
@@ -35,7 +37,7 @@ def _get_or_create_bot(tenant_id: str, db: Session) -> Bot:
     return bot
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints 
 
 @router.get("/settings")
 def get_bot_settings(tenant_id: str, db: Session = Depends(get_db)):
@@ -102,5 +104,8 @@ def get_widget_config(widget_key: str, db: Session = Depends(get_db)):
         "fallback": bot.fallback or "I couldn't find that in your documents.",
         "theme_color": bot.theme_color or "#3b82f6",
         "logo_url": bot.logo_url or None,
+        "support_email": bot.support_email or None,
+        "support_phone": bot.support_phone or None,
     }
+
 

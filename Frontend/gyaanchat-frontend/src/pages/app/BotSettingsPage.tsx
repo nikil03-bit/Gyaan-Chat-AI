@@ -120,10 +120,27 @@ export default function BotSettingsPage() {
                             <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when a visitor opens the widget</span>
                         </div>
 
+                        <div className="form-group">
+                            <label className="label">Fallback Message</label>
+                            <textarea className="input" value={settings?.fallback || ""} onChange={e => patchSettings({ fallback: e.target.value })} rows={2} placeholder="I couldn't find that in your documents." />
+                            <span className="muted" style={{ fontSize: "0.73rem" }}>Shown when the chatbot cannot confidently answer a question</span>
+                        </div>
 
+                        <div className="form-group">
+                            <label className="label">Customer Support Email</label>
+                            <input className="input" type="email" value={settings?.support_email || ""} onChange={e => patchSettings({ support_email: e.target.value })} placeholder="support@company.com" />
+                            <span className="muted" style={{ fontSize: "0.73rem" }}>Appended to fallback responses on answer failure</span>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label">Customer Support Phone</label>
+                            <input className="input" type="text" value={settings?.support_phone || ""} onChange={e => patchSettings({ support_phone: e.target.value })} placeholder="+1 (555) 019-2834" />
+                            <span className="muted" style={{ fontSize: "0.73rem" }}>Appended to fallback responses on answer failure</span>
+                        </div>
 
                         <div className="form-group">
                             <label className="label">Response Style</label>
+
                             <select className="input" value={settings?.temperature || "0.2"} onChange={e => patchSettings({ temperature: e.target.value })}>
                                 <option value="0.0">Precise — strictly factual</option>
                                 <option value="0.2">Balanced — recommended</option>
@@ -231,8 +248,39 @@ export default function BotSettingsPage() {
                                 background: `linear-gradient(135deg, ${color}, ${color}cc)`, color: "#fff",
                                 fontSize: "0.82rem", lineHeight: 1.5, boxShadow: `0 2px 8px ${color}44`
                             }}>
-                                What can you help me with?
+                                What is the price of product X?
                             </div>
+
+                            {/* Sample fallback response */}
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                                <div style={{
+                                    width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                                    background: logoUrl ? "transparent" : `linear-gradient(135deg, ${color}, ${color}99)`,
+                                    overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+                                }}>
+                                    {logoUrl
+                                        ? <img src={logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+                                    }
+                                </div>
+                                <div style={{
+                                    maxWidth: "78%", padding: "10px 14px", borderRadius: "16px 16px 16px 4px",
+                                    background: "var(--color-bg-card)", color: "var(--color-text)",
+                                    fontSize: "0.82rem", lineHeight: 1.5,
+                                    border: "1px solid var(--color-border)",
+                                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                                }}>
+                                    <div>{settings?.fallback || "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."}</div>
+                                    {(settings?.support_email || settings?.support_phone) && (
+                                        <div style={{ marginTop: 8, borderTop: "1px solid var(--color-border)", paddingTop: 6 }}>
+                                            <strong style={{ fontSize: "0.75rem", display: "block", marginBottom: 3 }}>Customer Support:</strong>
+                                            {settings?.support_email && <div style={{ fontSize: "0.72rem" }}>• Email: {settings.support_email}</div>}
+                                            {settings?.support_phone && <div style={{ fontSize: "0.72rem" }}>• Phone: {settings.support_phone}</div>}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
 
 
                         </div>

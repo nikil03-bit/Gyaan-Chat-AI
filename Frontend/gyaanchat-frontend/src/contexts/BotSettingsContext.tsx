@@ -79,12 +79,15 @@ export function BotSettingsProvider({ children }: { children: ReactNode }) {
                 theme_color: settings.theme_color,
                 temperature: settings.temperature,
                 logo_url: settings.logo_url, // persist the URL
+                support_email: settings.support_email,
+                support_phone: settings.support_phone,
             });
             setSettings(updated);
         } finally {
             setSaving(false);
         }
     }, [settings, tenantId]);
+
 
     return (
         <BotSettingsContext.Provider value={{

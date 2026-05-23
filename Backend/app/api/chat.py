@@ -67,20 +67,69 @@ def save_chat_log(db: Session, tenant_id: str, question: str, answer: str, sourc
         print(f"Failed to save chat log: {e}")
 
 
+def get_support_contact_block(bot) -> str:
+    contact_info = []
+    if bot:
+        if bot.support_email:
+            contact_info.append(f"- **Email:** {bot.support_email}")
+        if bot.support_phone:
+            contact_info.append(f"- **Phone:** {bot.support_phone}")
+    if contact_info:
+        return "\n\n**Customer Support:**\n" + "\n".join(contact_info)
+    return ""
+
+
 @router.post("/")
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
+
     """RAG chat endpoint — handles greetings, small-talk, and document-based Q&A."""
     msg = req.question.strip()
+
+    # Load bot configurations to apply custom Response Style (temperature)
+    from app.models.bot import Bot
+    bot = None
+    temperature_val = 0.2
+    if req.bot_id:
+        bot = db.query(Bot).filter(Bot.id == req.bot_id).first()
+    elif req.tenant_id:
+        bot = db.query(Bot).filter(Bot.tenant_id == req.tenant_id).first()
+    
+    if bot and bot.temperature:
+        try:
+            temperature_val = float(bot.temperature)
+        except ValueError:
+            temperature_val = 0.2
 
     history_str = ""
     if req.session_id:
         recent_history = db.query(ChatHistory).filter(
             ChatHistory.tenant_id == req.tenant_id,
             ChatHistory.session_id == req.session_id
-        ).order_by(ChatHistory.created_at.desc()).limit(6).all()
+        ).order_by(ChatHistory.created_at.desc()).limit(12).all()
         
         if recent_history:
-            for hist in reversed(recent_history):
+            filtered_history = []
+            chronological = list(reversed(recent_history))
+            
+            i = 0
+            while i < len(chronological):
+                # If a user query was answered with a fallback response, skip the pair
+                if (
+                    i < len(chronological) - 1
+                    and chronological[i].sender == "user"
+                    and chronological[i+1].sender == "bot"
+                    and ("i'm sorry" in chronological[i+1].message.lower() or "i don't have the exact" in chronological[i+1].message.lower())
+                ):
+                    i += 2
+                # Skip orphaned fallback bot messages
+                elif chronological[i].sender == "bot" and ("i'm sorry" in chronological[i].message.lower() or "i don't have the exact" in chronological[i].message.lower()):
+                    i += 1
+                else:
+                    filtered_history.append(chronological[i])
+                    i += 1
+            
+            # Keep up to the 6 most recent constructive messages
+            for hist in filtered_history[-6:]:
                 role = "Customer" if hist.sender == "user" else "Assistant"
                 history_str += f"{role}: {hist.message}\n"
 
@@ -100,7 +149,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         async def smalltalk_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
             full_answer = ""
-            for chunk in generate_answer_stream(prompt):
+            for chunk in generate_answer_stream(prompt, temperature=temperature_val):
                 full_answer += chunk
                 yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
             save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
@@ -161,7 +210,9 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     if not filtered_docs:
         print("[DEBUG] Context REJECTED (no chunks passed threshold).")
-        answer_text = "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+        fallback_text = bot.fallback if (bot and bot.fallback) else "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
+        contact_block = get_support_contact_block(bot)
+        answer_text = f"{fallback_text}{contact_block}"
         
         async def no_docs_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
@@ -170,6 +221,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             save_chat_log(db, req.tenant_id, msg, answer_text, source_count=0, bot_id=req.bot_id)
             
         return StreamingResponse(no_docs_generator(), media_type="text/event-stream")
+
 
     print(f"[DEBUG] Context ACCEPTED with {len(filtered_docs)} relevant chunks.")
     filenames = sorted(list(set([meta.get("filename") for meta in filtered_metadatas])))
@@ -194,14 +246,29 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     async def rag_generator():
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
         full_answer = ""
-        for chunk in generate_answer_stream(prompt):
+        for chunk in generate_answer_stream(prompt, temperature=temperature_val):
             full_answer += chunk
             yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+            
+        # Check if response is a fallback/missing information message
+        is_fallback = False
+        lower_ans = full_answer.lower()
+        if "don't have the exact answer" in lower_ans or "do not have the exact answer" in lower_ans or "reach out to our human support team" in lower_ans:
+            is_fallback = True
+        elif bot and bot.fallback and bot.fallback.strip().lower() in lower_ans:
+            is_fallback = True
+            
+        if is_fallback:
+            contact_block = get_support_contact_block(bot)
+            if contact_block:
+                yield f"data: {json.dumps({'type': 'content', 'content': contact_block})}\n\n"
+                full_answer += contact_block
             
         save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
         save_chat_log(db, req.tenant_id, msg, full_answer, source_count=len(sources), bot_id=req.bot_id)
 
     return StreamingResponse(rag_generator(), media_type="text/event-stream")
+
 
 
 # ── Widget endpoint (PUBLIC — called from customer websites) ──────────────────

@@ -13,7 +13,6 @@ Gyaan_ChatAI/
             db.py
             main.py
             requirements.txt
-            __init__.py
             api/
                 analytics.py
                 auth.py
@@ -151,14 +150,12 @@ Gyaan_ChatAI/
                     LogsPage.tsx
                     TestChatPage.tsx
                     admin/
+                        AdminAccountsPage.tsx
                         AdminAnalyticsPage.tsx
                         AdminBotsPage.tsx
                         AdminConversationsPage.tsx
                         AdminDashboardPage.tsx
                         AdminDocumentsPage.tsx
-                        AdminSystemPage.tsx
-                        AdminTenantsPage.tsx
-                        AdminUsersPage.tsx
                     app/
                         AnalyticsChartPage.tsx
                         AnalyticsPage.tsx
@@ -572,11 +569,6 @@ def health_check():
 
 ```
 
-### File: Backend\app\__init__.py
-```py
-
-```
-
 ### File: Backend\app\api\analytics.py
 ```py
 from fastapi import APIRouter, Depends
@@ -703,6 +695,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import Optional
 
+# Local imports for database, models, and utility functions
 from ..core.database import get_db
 from ..models.user import User
 from ..models.tenant import Tenant
@@ -710,9 +703,13 @@ from ..models.bot import Bot
 from ..auth_utils import hash_password, verify_password, create_access_token, get_current_user
 from ..utils.email import send_verification_email, send_reset_password_email
 
+# Define the authentication router, all routes will start with /auth
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# --- Pydantic Schemas for Request Validation ---
+
 class ForgotPasswordIn(BaseModel):
+    # Validates that the input is a properly formatted email string
     email: EmailStr
 
 class ResetPasswordIn(BaseModel):
@@ -724,7 +721,7 @@ class RegisterIn(BaseModel):
     name: str
     email: EmailStr
     password: str
-    website_name: str  # tenant name
+    website_name: str  # Used to create the associated tenant/workspace name
 
 class VerifyEmailIn(BaseModel):
     email: EmailStr
@@ -735,56 +732,75 @@ class LoginIn(BaseModel):
     password: str
 
 class ProfileUpdate(BaseModel):
+    # Optional fields allow partial updates of the user profile
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
 
+# --- API Endpoints ---
+
 @router.post("/register")
 def register(data: RegisterIn, db: Session = Depends(get_db)):
-    """Register a new user, tenant, and bot, and send a verification email."""
+    """
+    Register a new user, create their tenant (workspace), set up a default bot,
+    and trigger a verification email containing a One-Time Password (OTP).
+    """
     print(f"ENTERED register: {data.email}")
+    
+    # Check if a user with this email already exists
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
+        # If the user exists but hasn't verified their email yet, resend the OTP
         if not existing.is_verified:
-            # If not verified, just regenerate code and resend
             code = str(random.randint(100000, 999999))
             existing.verification_code = code
             db.commit()
             send_verification_email(data.email, code)
             return {"verification_required": True, "message": "Verification code resent"}
+        # If they are already verified, prevent duplicate registration
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # 1. Create a new Tenant (Workspace) for the user
     tenant = Tenant(name=data.website_name)
     db.add(tenant)
-    db.flush()  # get tenant.id
+    db.flush()  # Flush pushes the tenant to DB to generate an ID without committing the transaction
 
+    # Generate a 6-digit verification code
     code = str(random.randint(100000, 999999))
 
+    # 2. Create the User, linking them to the newly created tenant
     user = User(
         tenant_id=tenant.id,
         name=data.name,
         email=data.email,
-        password_hash=hash_password(data.password),
+        password_hash=hash_password(data.password),  # Hash passwords before saving!
         is_verified=False,
         verification_code=code
     )
     db.add(user)
 
+    # 3. Create a default Bot for this tenant
     bot = Bot(tenant_id=tenant.id, name=f"{data.website_name} Bot")
     db.add(bot)
 
+    # Commit all changes (Tenant, User, Bot) to the database atomically
     db.commit()
     db.refresh(user)
 
-    # Send OTP
+    # Send the OTP to the user's email for verification
     send_verification_email(data.email, code)
 
     return {"verification_required": True, "message": "Please check your email for the verification code"}
 
 @router.post("/verify-email")
 def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
-    """Verify the user's email using the OTP."""
+    """
+    Verify a user's email address using the 6-digit OTP sent to them.
+    Upon successful verification, it automatically logs them in and returns a JWT token.
+    """
     user = db.query(User).filter(User.email == data.email).first()
+    
+    # Validation checks
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.is_verified:
@@ -792,16 +808,18 @@ def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
     if user.verification_code != data.code:
         raise HTTPException(status_code=400, detail="Invalid verification code")
 
-    # Mark as verified
+    # Mark the user as verified and clear the verification code to prevent reuse
     user.is_verified = True
     user.verification_code = None
     db.commit()
 
-    # Now automatically log them in just like the old register endpoint
+    # Automatically log the user in by fetching their associated tenant and bot details
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     bot = db.query(Bot).filter(Bot.tenant_id == user.tenant_id).first()
     
+    # Generate the JSON Web Token (JWT) for subsequent authenticated requests
     token = create_access_token({"sub": user.id, "tenant_id": tenant.id})
+    
     return {
         "token": token,
         "user": {"id": user.id, "name": user.name, "email": user.email, "is_superadmin": user.is_superadmin},
@@ -811,21 +829,30 @@ def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(data: LoginIn, db: Session = Depends(get_db)):
-    """Authenticate a user and return a JWT token."""
+    """
+    Authenticate an existing user using email and password, returning a JWT token.
+    """
     user = db.query(User).filter(User.email == data.email).first()
+    
+    # Verify both the user's existence and their password match
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
+    # Ensure they have completed email verification
     if not user.is_verified:
         raise HTTPException(status_code=403, detail="Email not verified. Please verify your email first.")
 
+    # Check if the tenant (workspace) has been suspended
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if tenant and not tenant.is_active:
         raise HTTPException(status_code=403, detail="Tenant is suspended")
 
+    # Fetch associated bot to return in payload
     bot = db.query(Bot).filter(Bot.tenant_id == user.tenant_id).first()
 
+    # Issue JWT token embedded with user id, tenant id, and superadmin flag
     token = create_access_token({"sub": user.id, "tenant_id": user.tenant_id, "is_superadmin": user.is_superadmin})
+    
     return {
         "token": token,
         "user": {"id": user.id, "name": user.name, "email": user.email, "is_superadmin": user.is_superadmin},
@@ -835,10 +862,14 @@ def login(data: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me")
 def get_me(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return the current user's profile information."""
+    """
+    Retrieve the profile information of the currently authenticated user.
+    """
+    # Extract user ID (sub) from the current_user token payload provided by Depends(get_current_user)
     user = db.query(User).filter(User.id == current_user["sub"]).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+        
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     return {
         "name": user.name,
@@ -848,63 +879,82 @@ def get_me(current_user: dict = Depends(get_current_user), db: Session = Depends
 
 @router.patch("/profile")
 def update_profile(data: ProfileUpdate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update the current user's profile (name, email, password)."""
+    """
+    Selectively update the current user's profile details such as name, email, or password.
+    """
     user = db.query(User).filter(User.id == current_user["sub"]).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Process partial updates depending on which fields were provided in the request
     if data.name is not None:
         user.name = data.name
+        
     if data.email is not None:
+        # Check against taking another user's email
         existing = db.query(User).filter(User.email == data.email, User.id != user.id).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already in use")
         user.email = data.email
+        
     if data.password is not None:
         user.password_hash = hash_password(data.password)
     
+    # Save the updated profile correctly
     db.commit()
     db.refresh(user)
+    
     return {"name": user.name, "email": user.email}
 
 
 @router.post("/forgot-password")
 def forgot_password(data: ForgotPasswordIn, db: Session = Depends(get_db)):
-    """Generate a password reset OTP and email it to the user."""
+    """
+    Generate a 6-digit password reset OTP, set an expiration window, and email it to the user.
+    """
     user = db.query(User).filter(User.email == data.email).first()
+    
     if not user:
-        # Prevent email enumeration by returning a generic success message
+        # Security best practice: Prevent email enumeration by always returning the same response
+        # regardless of whether the email actually exists in our database.
         return {"message": "If an account exists, a reset email was sent."}
     
+    # Generate OTP and give it a 15-minute lifespan
     code = str(random.randint(100000, 999999))
     user.reset_code = code
     user.reset_code_expires = datetime.utcnow() + timedelta(minutes=15)
     db.commit()
     
+    # Trigger the email with the reset code
     send_reset_password_email(user.email, code)
+    
     return {"message": "If an account exists, a reset email was sent."}
 
 @router.post("/reset-password")
 def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
-    """Verify the OTP and securely update the user's password."""
+    """
+    Verify the reset OTP and securely update the user's forgotten password.
+    """
     user = db.query(User).filter(User.email == data.email).first()
+    
     if not user:
         raise HTTPException(status_code=400, detail="Invalid request")
         
+    # Verify the code matches
     if not user.reset_code or user.reset_code != data.code:
         raise HTTPException(status_code=400, detail="Invalid or missing verification code")
         
+    # Ensure the code hasn't expired past the 15-minute window
     if not user.reset_code_expires or datetime.utcnow() > user.reset_code_expires:
         raise HTTPException(status_code=400, detail="Reset code has expired")
         
-    # Valid code - update the password
+    # Valid code - update to new hashed password and invalidate the reset code
     user.password_hash = hash_password(data.new_password)
     user.reset_code = None
     user.reset_code_expires = None
     db.commit()
     
     return {"message": "Password successfully reset"}
-
 
 ```
 
@@ -924,8 +974,7 @@ router = APIRouter()
 LOGO_DIR = os.path.join("uploads", "logos")
 os.makedirs(LOGO_DIR, exist_ok=True)
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
+# ── Schemas
 class BotSettingsUpdate(BaseModel):
     name: Optional[str] = None
     greeting: Optional[str] = None
@@ -935,7 +984,7 @@ class BotSettingsUpdate(BaseModel):
     logo_url: Optional[str] = None
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers 
 
 def _get_or_create_bot(tenant_id: str, db: Session) -> Bot:
     bot = db.query(Bot).filter(Bot.tenant_id == tenant_id).first()
@@ -947,7 +996,7 @@ def _get_or_create_bot(tenant_id: str, db: Session) -> Bot:
     return bot
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints 
 
 @router.get("/settings")
 def get_bot_settings(tenant_id: str, db: Session = Depends(get_db)):
@@ -1095,15 +1144,51 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """RAG chat endpoint — handles greetings, small-talk, and document-based Q&A."""
     msg = req.question.strip()
 
+    # Load bot configurations to apply custom Response Style (temperature)
+    from app.models.bot import Bot
+    bot = None
+    temperature_val = 0.2
+    if req.bot_id:
+        bot = db.query(Bot).filter(Bot.id == req.bot_id).first()
+    elif req.tenant_id:
+        bot = db.query(Bot).filter(Bot.tenant_id == req.tenant_id).first()
+    
+    if bot and bot.temperature:
+        try:
+            temperature_val = float(bot.temperature)
+        except ValueError:
+            temperature_val = 0.2
+
     history_str = ""
     if req.session_id:
         recent_history = db.query(ChatHistory).filter(
             ChatHistory.tenant_id == req.tenant_id,
             ChatHistory.session_id == req.session_id
-        ).order_by(ChatHistory.created_at.desc()).limit(6).all()
+        ).order_by(ChatHistory.created_at.desc()).limit(12).all()
         
         if recent_history:
-            for hist in reversed(recent_history):
+            filtered_history = []
+            chronological = list(reversed(recent_history))
+            
+            i = 0
+            while i < len(chronological):
+                # If a user query was answered with a fallback response, skip the pair
+                if (
+                    i < len(chronological) - 1
+                    and chronological[i].sender == "user"
+                    and chronological[i+1].sender == "bot"
+                    and ("i'm sorry" in chronological[i+1].message.lower() or "i don't have the exact" in chronological[i+1].message.lower())
+                ):
+                    i += 2
+                # Skip orphaned fallback bot messages
+                elif chronological[i].sender == "bot" and ("i'm sorry" in chronological[i].message.lower() or "i don't have the exact" in chronological[i].message.lower()):
+                    i += 1
+                else:
+                    filtered_history.append(chronological[i])
+                    i += 1
+            
+            # Keep up to the 6 most recent constructive messages
+            for hist in filtered_history[-6:]:
                 role = "Customer" if hist.sender == "user" else "Assistant"
                 history_str += f"{role}: {hist.message}\n"
 
@@ -1123,7 +1208,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         async def smalltalk_generator():
             yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
             full_answer = ""
-            for chunk in generate_answer_stream(prompt):
+            for chunk in generate_answer_stream(prompt, temperature=temperature_val):
                 full_answer += chunk
                 yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
             save_interaction(db, req.tenant_id, msg, full_answer, req.bot_id, req.session_id)
@@ -1217,7 +1302,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     async def rag_generator():
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
         full_answer = ""
-        for chunk in generate_answer_stream(prompt):
+        for chunk in generate_answer_stream(prompt, temperature=temperature_val):
             full_answer += chunk
             yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
             
@@ -1315,12 +1400,12 @@ def extract_text(file_path: str, filename: str) -> str:
     """Extract plain text from PDF, TXT, DOCX, MD, CSV, or HTML files."""
     ext = os.path.splitext(filename)[1].lower()
 
-    # ── Plain text / Markdown (identical treatment) ───────────────────────────
+    # ── Plain text / Markdown (identical treatment) 
     if ext in (".txt", ".md"):
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read().strip()
 
-    # ── PDF ───────────────────────────────────────────────────────────────────
+    # ── PDF 
     if ext == ".pdf":
         try:
             from PyPDF2 import PdfReader
@@ -1334,7 +1419,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read PDF: {e}")
 
-    # ── DOCX ──────────────────────────────────────────────────────────────────
+    # ── DOCX 
     if ext == ".docx":
         try:
             from docx import Document
@@ -1344,7 +1429,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read DOCX: {e}")
 
-    # ── CSV ───────────────────────────────────────────────────────────────────
+    # ── CSV 
     if ext == ".csv":
         import csv
         rows = []
@@ -1359,7 +1444,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read CSV: {e}")
 
-    # ── HTML / HTM ────────────────────────────────────────────────────────────
+    # ── HTML / HTM 
     if ext in (".html", ".htm"):
         from html.parser import HTMLParser
 
@@ -1795,6 +1880,30 @@ def list_documents(_: dict = Depends(verify_admin)):
         pass
     docs.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
     return docs
+
+@router.get("/{doc_id}/download")
+def download_document(doc_id: str, _: dict = Depends(verify_admin)):
+    from app.api.documents import STATUS_DIR, UPLOAD_DIR
+    from fastapi.responses import FileResponse
+    from fastapi import HTTPException
+    
+    status_path = os.path.join(STATUS_DIR, f"{doc_id}.json")
+    if not os.path.exists(status_path):
+         raise HTTPException(status_code=404, detail="Document not found")
+         
+    with open(status_path) as f:
+         d = json.load(f)
+         
+    fname = d.get("filename", "document.pdf")
+    safe_fname = fname.replace(" ", "_")
+    
+    file_path = os.path.join(UPLOAD_DIR, f"{doc_id}_{safe_fname}")
+    if not os.path.exists(file_path):
+         file_path = os.path.join(UPLOAD_DIR, f"{doc_id}_{fname}")
+         if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found on disk")
+            
+    return FileResponse(file_path, filename=fname)
 
 ```
 
@@ -2612,7 +2721,7 @@ OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
 
-def generate_answer(prompt: str) -> str:
+def generate_answer(prompt: str, temperature: float = 0.2) -> str:
     try:
         response = requests.post(
             OLLAMA_URL,
@@ -2622,7 +2731,7 @@ def generate_answer(prompt: str) -> str:
                 "stream": False,
                 "keep_alive": -1,
                 "options": {
-                    "temperature": 0.2
+                    "temperature": temperature
                 }
             },
             timeout=300
@@ -2635,7 +2744,7 @@ def generate_answer(prompt: str) -> str:
             detail=f"Failed to connect to Ollama. Is the model '{MODEL}' available? Error: {str(e)}"
         )
 
-def generate_answer_stream(prompt: str):
+def generate_answer_stream(prompt: str, temperature: float = 0.2):
     try:
         response = requests.post(
             OLLAMA_URL,
@@ -2645,7 +2754,7 @@ def generate_answer_stream(prompt: str):
                 "stream": True,
                 "keep_alive": -1,
                 "options": {
-                    "temperature": 0.2
+                    "temperature": temperature
                 }
             },
             stream=True,
@@ -2720,8 +2829,9 @@ STRICT BEHAVIOR GUIDELINES:
 5. OFF-TOPIC STRICT REFUSAL: Do not guess or draw on outside knowledge. If the customer asks about topics completely unrelated to this company or its products (e.g., general baking recipes, celebrities, general facts), STRICTLY REFUSE by saying exactly: "I'm sorry, but I can only answer questions related to our company's products and services."
 6. MISSING INFO: If the query is related to the company but the answer cannot be confidently found in your internal knowledge base, say: "I'm sorry, I don't have the exact answer to that right now. Please reach out to our human support team."
 7. NO SIGNATURES: Do not include ANY sign-offs, signatures, or placeholders like "[Your Name]" or "[Your Friendly Support Agent]". End the response naturally.
-8. NO REPETITIVE GREETINGS: Do not start your response with greetings (like "Hello", "Hi there", or "I'm delighted to help") unless the user explicitly greets you first. Jump straight into answering their question naturally.
+8. NO OPENING GREETINGS OR PREFACES: Do NOT start your response with opening phrases, prefaces, or greetings (like "I'm happy to help!", "Certainly!", "Hello!", "Hi!", or "I'd be happy to explain..."). Start immediately and directly with the answer to the customer's question.
 9. STRICT GROUNDING: You MUST rely entirely on the literal text in the Hidden Internal Knowledge Base. Do NOT invent policies or assume personal details like the user's location. Do NOT mix or confuse numbers (e.g. shipping prices, return days). If a specific fact is not explicitly stated, you MUST say you don't know.
+10. NO REPETITIVE CLOSINGS: Do NOT end your response with boilerplate closing clichés (like "If you have any other questions...", "Please don't hesitate to ask!", "I hope this helps!", or "Let me know if you need anything else!"). End your response immediately and naturally once the question has been fully answered.
 
 --- Previous Conversation ---
 {history_str}
@@ -3111,11 +3221,9 @@ import ProfilePage from "./pages/app/ProfilePage";
 import BotSettingsPage from "./pages/app/BotSettingsPage";
 
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
-import AdminTenantsPage from "./pages/admin/AdminTenantsPage";
-import AdminUsersPage from "./pages/admin/AdminUsersPage";
+import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
 import AdminBotsPage from "./pages/admin/AdminBotsPage";
 import AdminDocumentsPage from "./pages/admin/AdminDocumentsPage";
-import AdminSystemPage from "./pages/admin/AdminSystemPage";
 
 export default function App() {
   const { token, user } = useAuth();
@@ -3146,11 +3254,9 @@ export default function App() {
         <Route element={<AdminLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard"     element={<AdminDashboardPage />} />
-          <Route path="tenants"       element={<AdminTenantsPage />} />
-          <Route path="users"         element={<AdminUsersPage />} />
+          <Route path="accounts"      element={<AdminAccountsPage />} />
           <Route path="bots"          element={<AdminBotsPage />} />
           <Route path="documents"     element={<AdminDocumentsPage />} />
-          <Route path="system"        element={<AdminSystemPage />} />
         </Route>
       </Route>
 
@@ -3812,16 +3918,14 @@ export default function DocsTOC({ content }: DocsTOCProps) {
 ### File: Frontend\gyaanchat-frontend\src\components\layout\AdminLayout.tsx
 ```tsx
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Bot, Building2, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Bot, Building2, FileText, LayoutDashboard } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 const NAV = [
   { to: "/admin/dashboard",      icon: LayoutDashboard, label: "Dashboard"     },
-  { to: "/admin/tenants",        icon: Building2,       label: "Tenants"       },
-  { to: "/admin/users",          icon: Users,           label: "Users"         },
+  { to: "/admin/accounts",       icon: Building2,       label: "Accounts"      },
   { to: "/admin/bots",           icon: Bot,             label: "Bots"          },
   { to: "/admin/documents",      icon: FileText,        label: "Documents"     },
-  { to: "/admin/system",         icon: Settings,        label: "System"        },
 ];
 
 export default function AdminLayout() {
@@ -4897,6 +5001,142 @@ export default function TestChatPage() {
 
 ```
 
+### File: Frontend\gyaanchat-frontend\src\pages\admin\AdminAccountsPage.tsx
+```tsx
+import { useEffect, useState } from "react";
+import { api } from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
+import { Trash2, Shield, ShieldOff, Power } from "lucide-react";
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  is_superadmin: boolean;
+  tenant_id: string;
+  tenant_name: string;
+  tenant_active: boolean;
+  messages: number;
+  created_at: string;
+}
+
+export default function AdminAccountsPage() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  
+  const { token } = useAuth();
+  const h = { Authorization: `Bearer ${token}` };
+
+  function load() {
+    setLoading(true);
+    api.get("/admin/users", { headers: h })
+      .then(res => setUsers(res.data))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }
+  
+  useEffect(load, [token]);
+
+  async function toggleSuperadmin(id: string) {
+    if (!confirm("Are you sure you want to change this user's admin privileges?")) return;
+    await api.patch(`/admin/users/${id}/role`, {}, { headers: h });
+    load();
+  }
+
+  async function toggleStatus(tenant_id: string, currentStatus: boolean) {
+    if (!confirm(`Are you sure you want to ${currentStatus ? 'suspend' : 'activate'} this organization?`)) return;
+    await api.patch(`/admin/tenants/${tenant_id}/status`, {}, { headers: h });
+    load();
+  }
+
+  async function delUser(id: string) {
+    if (!confirm("Delete this user? This cannot be undone.")) return;
+    await api.delete(`/admin/users/${id}`, { headers: h });
+    load();
+  }
+  
+  const filtered = users.filter(u => 
+    u.name.toLowerCase().includes(search.toLowerCase()) || 
+    u.email.toLowerCase().includes(search.toLowerCase()) ||
+    (u.tenant_name && u.tenant_name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Accounts Overview</h1>
+          <p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>
+            Unified list of all users and their associated organizations.
+          </p>
+        </div>
+        <input 
+          className="input" 
+          placeholder="Search by name, email, or tenant…" 
+          value={search} 
+          onChange={e => setSearch(e.target.value)} 
+          style={{ width: 280, margin: 0 }} 
+        />
+      </div>
+      
+      <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, overflow: "hidden" }}>
+        {loading ? <p style={{ padding: 24, color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+            <thead style={{ background: "var(--color-bg,#0f1117)", borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
+              <tr>
+                {["Name", "Email", "Tenant", "Role", "Messages", "Created", "Actions"].map(h => 
+                  <th key={h} style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600, fontSize: "0.72rem", textTransform: "uppercase", color: "var(--color-text-muted,#94a3b8)" }}>{h}</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(u => (
+                <tr key={u.id} style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
+                  <td style={{ padding: "10px 14px", fontWeight: 600 }}>{u.name}</td>
+                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.8rem" }}>{u.email}</td>
+                  <td style={{ padding: "10px 14px", fontWeight: 500 }}>
+                    <div style={{display: "flex", alignItems: "center", gap: 6}}>
+                       {u.tenant_name}
+                       {!u.tenant_active && <span style={{fontSize: "0.6rem", background:"#ef444420", color:"#ef4444", padding:"2px 6px", borderRadius: 4}}>Suspended</span>}
+                    </div>
+                  </td>
+                  <td style={{ padding: "10px 14px" }}>
+                    {u.is_superadmin 
+                      ? <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: "#7c3aed20", color: "#a855f7" }}>Super Admin</span>
+                      : <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: "#33415550", color: "#94a3b8" }}>Standard</span>
+                    }
+                  </td>
+                  <td style={{ padding: "10px 14px" }}>{u.messages}</td>
+                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.72rem" }}>
+                    {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td style={{ padding: "10px 14px" }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => toggleStatus(u.tenant_id, u.tenant_active)} title={u.tenant_active ? "Suspend Tenant" : "Activate Tenant"} style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", padding: "4px 8px", background: "transparent", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 6, cursor: "pointer", color: "var(--color-text,#e2e8f0)" }}>
+                         <Power size={14} color={u.tenant_active ? "#e2e8f0" : "#ef4444"} />
+                      </button>
+                      <button onClick={() => toggleSuperadmin(u.id)} title={u.is_superadmin ? "Revoke Admin" : "Make Admin"} style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", padding: "4px 8px", background: "transparent", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 6, cursor: "pointer", color: "var(--color-text,#e2e8f0)" }}>
+                         {u.is_superadmin ? <ShieldOff size={14} /> : <Shield size={14} />}
+                      </button>
+                      <button onClick={() => delUser(u.id)} title="Delete User" style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", padding: "4px 8px", background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, cursor: "pointer" }}>
+                         <Trash2 size={14}/>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && <tr><td colSpan={7} style={{ padding: 24, textAlign: "center", color: "var(--color-text-muted,#94a3b8)" }}>No users found.</td></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+```
+
 ### File: Frontend\gyaanchat-frontend\src\pages\admin\AdminAnalyticsPage.tsx
 ```tsx
 import { useEffect, useState } from "react";
@@ -5144,27 +5384,7 @@ export default function AdminDashboardPage() {
             <StatCard label="Documents"       value={data.total_documents} sub={data.failed_documents > 0 ? `${data.failed_documents} failed` : undefined} color={data.failed_documents > 0 ? "#ef4444" : "#10b981"} />
             <StatCard label="Total Messages"  value={data.total_messages}  color="#f59e0b" />
           </div>
-          <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
-            <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 16 }}>Recent Activity</h2>
-            {data.recent_activity.length === 0 ? <p style={{ color: "var(--color-text-muted,#94a3b8)", fontSize: "0.875rem" }}>No activity yet.</p> : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-                <thead><tr style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                  {["Tenant", "Last Query", "Time"].map(h => <th key={h} style={{ textAlign: "left", padding: "6px 12px 10px 0", color: "var(--color-text-muted,#94a3b8)", fontWeight: 600, fontSize: "0.75rem" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {data.recent_activity.map((a, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                      <td style={{ padding: "8px 12px 8px 0", fontFamily: "monospace", fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)" }}>{a.tenant_id.slice(0,8)}…</td>
-                      <td style={{ padding: "8px 12px 8px 0" }}>{a.question}</td>
-                      <td style={{ padding: "8px 0", fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)" }}>{new Date(a.ts).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16, marginTop: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16 }}>
             <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
               <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 14 }}>Top Active Tenants</h2>
               {!analytics || analytics.top_tenants.length === 0 ? (
@@ -5260,213 +5480,6 @@ export default function AdminDocumentsPage() {
                 </tr>
               ))}
               {filtered.length === 0 && <tr><td colSpan={5} style={{ padding: 24, textAlign: "center", color: "var(--color-text-muted,#94a3b8)" }}>No documents found.</td></tr>}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-```
-
-### File: Frontend\gyaanchat-frontend\src\pages\admin\AdminSystemPage.tsx
-```tsx
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import { useAuth } from "../../context/AuthContext";
-
-interface HealthItem { service: string; status: string; ok: boolean; }
-interface Settings { platform_name: string; environment: string; jwt_expire_minutes: string; allowed_origins: string; }
-
-export default function AdminSystemPage() {
-  const [health, setHealth] = useState<HealthItem[]>([]);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { token } = useAuth();
-
-  useEffect(() => {
-    const hdr = { Authorization: `Bearer ${token}` };
-    setLoading(true);
-    Promise.all([api.get("/admin/system/health", { headers: hdr }), api.get("/admin/system/settings", { headers: hdr })])
-      .then(([r1, r2]) => { setHealth(r1.data); setSettings(r2.data); }).catch(console.error).finally(() => setLoading(false));
-  }, [token]);
-
-  return (
-    <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>System & Settings</h1>
-        <p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>Monitor infrastructure health and platform configuration.</p>
-      </div>
-      {loading ? <p style={{ color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
-          <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
-            <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 20 }}>System Health</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {health.map((h, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 600 }}>{h.service}</div>
-                  <span style={{ padding: "4px 12px", borderRadius: 20, fontSize: "0.75rem", fontWeight: 600, background: h.ok ? "#10b98120" : "#ef444420", color: h.ok ? "#10b981" : "#ef4444" }}>{h.status}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          {settings && (
-            <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
-              <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 20 }}>Platform Config</h2>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {[["Platform Name", settings.platform_name], ["Environment", settings.environment], ["JWT Expire (min)", settings.jwt_expire_minutes]].map(([l, v]) => (
-                  <div key={l}><div style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", color: "var(--color-text-muted,#94a3b8)", marginBottom: 4 }}>{l}</div><div style={{ fontFamily: "monospace", background: "var(--color-bg,#0f1117)", padding: "6px 12px", borderRadius: 6, fontSize: "0.875rem" }}>{v || "—"}</div></div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-```
-
-### File: Frontend\gyaanchat-frontend\src\pages\admin\AdminTenantsPage.tsx
-```tsx
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import { useAuth } from "../../context/AuthContext";
-
-interface Tenant { id: string; name: string; owner_email: string; is_active: boolean; bots: number; messages: number; users: number; created_at: string; }
-
-export default function AdminTenantsPage() {
-  const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const { token } = useAuth();
-  const h = { Authorization: `Bearer ${token}` };
-
-  function load() {
-    setLoading(true);
-    api.get("/admin/tenants", { headers: h }).then(r => setTenants(r.data)).catch(console.error).finally(() => setLoading(false));
-  }
-  useEffect(load, [token]);
-
-  async function toggleStatus(id: string) { await api.patch(`/admin/tenants/${id}/status`, {}, { headers: h }); load(); }
-  async function del(id: string) { if (!confirm("Delete tenant and ALL their data?")) return; await api.delete(`/admin/tenants/${id}`, { headers: h }); load(); }
-
-  const filtered = tenants.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.owner_email.toLowerCase().includes(search.toLowerCase()));
-
-  return (
-    <div>
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div><h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Tenant Management</h1><p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>Manage all organizations on the platform.</p></div>
-        <input className="input" placeholder="Search tenants…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240, margin: 0 }} />
-      </div>
-      <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, overflow: "hidden" }}>
-        {loading ? <p style={{ padding: 24, color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-            <thead style={{ background: "var(--color-bg,#0f1117)", borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-              <tr>{["Name","Owner","Users","Bots","Messages","Status","Created","Actions"].map(h => <th key={h} style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600, fontSize: "0.72rem", textTransform: "uppercase", color: "var(--color-text-muted,#94a3b8)" }}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {filtered.map(t => (
-                <tr key={t.id} style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                  <td style={{ padding: "10px 14px", fontWeight: 600 }}>{t.name}</td>
-                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.8rem" }}>{t.owner_email}</td>
-                  <td style={{ padding: "10px 14px" }}>{t.users}</td>
-                  <td style={{ padding: "10px 14px" }}>{t.bots}</td>
-                  <td style={{ padding: "10px 14px" }}>{t.messages}</td>
-                  <td style={{ padding: "10px 14px" }}><span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: t.is_active ? "#10b98120" : "#ef444420", color: t.is_active ? "#10b981" : "#ef4444" }}>{t.is_active ? "Active" : "Suspended"}</span></td>
-                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.72rem" }}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "—"}</td>
-                  <td style={{ padding: "10px 14px" }}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => toggleStatus(t.id)} style={{ fontSize: "0.72rem", padding: "4px 10px", background: "transparent", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 6, cursor: "pointer", color: "var(--color-text,#e2e8f0)" }}>{t.is_active ? "Suspend" : "Activate"}</button>
-                      <button onClick={() => del(t.id)} style={{ fontSize: "0.72rem", padding: "4px 10px", background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, cursor: "pointer" }}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && <tr><td colSpan={8} style={{ padding: 24, textAlign: "center", color: "var(--color-text-muted,#94a3b8)" }}>No tenants found.</td></tr>}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-```
-
-### File: Frontend\gyaanchat-frontend\src\pages\admin\AdminUsersPage.tsx
-```tsx
-import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import { useAuth } from "../../context/AuthContext";
-
-interface User { id: string; name: string; email: string; is_superadmin: boolean; tenant_name: string; tenant_active: boolean; messages: number; created_at: string; }
-
-export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const { token, user: currentUser } = useAuth();
-  const h = { Authorization: `Bearer ${token}` };
-
-  function load() {
-    setLoading(true);
-    api.get("/admin/users", { headers: h })
-      .then(r => setUsers(r.data)).catch(console.error).finally(() => setLoading(false));
-  }
-  useEffect(load, [token]);
-
-  async function toggleRole(id: string) {
-    if (!confirm("Are you sure you want to change this user's role?")) return;
-    await api.patch(`/admin/users/${id}/role`, {}, { headers: h });
-    load();
-  }
-
-  async function del(id: string) {
-    if (!confirm("Are you sure you want to permanently delete this user?")) return;
-    await api.delete(`/admin/users/${id}`, { headers: h });
-    load();
-  }
-
-  const filtered = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()) || u.tenant_name.toLowerCase().includes(search.toLowerCase()));
-
-  return (
-    <div>
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div><h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>User Management</h1><p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>All users across the platform.</p></div>
-        <input className="input" placeholder="Search users…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240, margin: 0 }} />
-      </div>
-      <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, overflow: "hidden" }}>
-        {loading ? <p style={{ padding: 24, color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-            <thead style={{ background: "var(--color-bg,#0f1117)", borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-              <tr>{["Name","Email","Role","Tenant","Status","Messages","Joined","Actions"].map(h => <th key={h} style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600, fontSize: "0.72rem", textTransform: "uppercase", color: "var(--color-text-muted,#94a3b8)" }}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {filtered.map(u => (
-                <tr key={u.id} style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                  <td style={{ padding: "10px 14px", fontWeight: 600 }}>{u.name}</td>
-                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.8rem" }}>{u.email}</td>
-                  <td style={{ padding: "10px 14px" }}><span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: u.is_superadmin ? "#7c3aed20" : "#2563eb15", color: u.is_superadmin ? "#a855f7" : "#2563eb" }}>{u.is_superadmin ? "Super Admin" : "Tenant User"}</span></td>
-                  <td style={{ padding: "10px 14px" }}>{u.tenant_name}</td>
-                  <td style={{ padding: "10px 14px" }}><span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: u.tenant_active ? "#10b98120" : "#ef444420", color: u.tenant_active ? "#10b981" : "#ef4444" }}>{u.tenant_active ? "Active" : "Suspended"}</span></td>
-                  <td style={{ padding: "10px 14px" }}>{u.messages}</td>
-                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.72rem" }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
-                  <td style={{ padding: "10px 14px" }}>
-                    {currentUser?.id !== u.id && (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => toggleRole(u.id)} style={{ fontSize: "0.72rem", padding: "4px 10px", background: "transparent", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 6, cursor: "pointer", color: "var(--color-text,#e2e8f0)" }}>
-                          {u.is_superadmin ? "Demote" : "Promote"}
-                        </button>
-                        <button onClick={() => del(u.id)} style={{ fontSize: "0.72rem", padding: "4px 10px", background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, cursor: "pointer" }}>Delete</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && <tr><td colSpan={8} style={{ padding: 24, textAlign: "center", color: "var(--color-text-muted,#94a3b8)" }}>No users found.</td></tr>}
             </tbody>
           </table>
         )}
@@ -7514,6 +7527,7 @@ export default function TestChatPage() {
 
 ### File: Frontend\gyaanchat-frontend\src\pages\public\DocsPage.tsx
 ```tsx
+// Renders documentation from Markdown
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import DocsMarkdown from '../../components/docs/DocsMarkdown';
 import DocsTOC from '../../components/docs/DocsTOC';
@@ -7523,17 +7537,23 @@ import DocsLayout from '../../components/layout/DocsLayout';
 import { Clock, ArrowLeft, ArrowRight } from 'lucide-react';
 
 export default function DocsPage() {
+  // Get slug from URL
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
 
+  // Redirect if no slug
   if (!slug) {
     return <Navigate to="/docs/getting-started" replace />;
   }
 
+  // Fetch meta and content
   const docInfo = getDocBySlug(slug);
   const content = getContentForSlug(slug);
+  
+  // Get nav links
   const { prev, next } = getAdjacentDocs(slug);
 
+  // 404 state
   if (!docInfo || !content) {
     return (
       <DocsLayout>
@@ -7557,7 +7577,7 @@ export default function DocsPage() {
     <DocsLayout>
       <div className="docs-page-layout">
         <div className="docs-page-content">
-          {/* Article hero */}
+          {/* Header */}
           <div className="docs-article-hero">
             <div className="docs-article-icon-wrap">
               <Icon size={22} strokeWidth={1.75} />
@@ -7571,10 +7591,10 @@ export default function DocsPage() {
             </div>
           </div>
 
-          {/* Main article content */}
+          {/* Article Body */}
           <DocsMarkdown content={content} />
 
-          {/* Prev / Next navigation */}
+          {/* Navigation */}
           <div className="docs-pagination">
             {prev ? (
               <button
@@ -7608,25 +7628,29 @@ export default function DocsPage() {
           </div>
         </div>
 
-        {/* Right TOC */}
+        {/* Sidebar TOC */}
         <DocsTOC content={content} />
       </div>
     </DocsLayout>
   );
 }
 
+
+
 ```
 
 ### File: Frontend\gyaanchat-frontend\src\pages\public\LandingPage.tsx
 ```tsx
+// Main Landing Page for the application
 import { useNavigate } from "react-router-dom";
 import myLogo from "../../assets/gyaanchatlogo.png";
+
 export default function LandingPage() {
     const navigate = useNavigate();
 
     return (
         <div>
-            {/* ── Navbar ── */}
+            {/* Navigation Bar */}
             <nav className="landing-nav">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <img src={myLogo} alt="Logo" style={{ width: 44, height: 44, objectFit: "contain" }} />
@@ -7639,7 +7663,7 @@ export default function LandingPage() {
                 </div>
             </nav>
 
-            {/* ── Hero ── */}
+            {/* Hero Section */}
             <section style={{ background: "var(--color-bg)", padding: "0 24px" }}>
                 <div className="landing-hero">
                     <h1 className="hero-title">
@@ -7659,7 +7683,7 @@ export default function LandingPage() {
                         </button>
                     </div>
 
-                    {/* Mock browser window */}
+                    {/* Chat Preview */}
                     <div className="mock-browser">
                         <div className="mock-browser-bar">
                             <div className="mock-dot" style={{ background: "#ff5f57" }} />
@@ -7676,7 +7700,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── Features ── */}
+            {/* Features List */}
             <section className="features-section">
                 <h2 className="section-title">Everything you need</h2>
                 <p className="section-sub">A complete platform for building and deploying AI chatbots</p>
@@ -7698,7 +7722,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── How It Works ── */}
+            {/* Step-by-step Guide */}
             <section className="how-section" id="how-it-works">
                 <h2 className="section-title">How it works</h2>
                 <p className="section-sub">Get your AI chatbot live in three simple steps</p>
@@ -7718,7 +7742,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── CTA ── */}
+            {/* CTA Section */}
             <section className="cta-section">
                 <h2 className="cta-title">Ready to get started?</h2>
                 <p className="cta-sub">Join hundreds of teams using GyaanChat to power their support.</p>
@@ -7727,7 +7751,7 @@ export default function LandingPage() {
                 </button>
             </section>
 
-            {/* ── Footer ── */}
+            {/* Footer */}
             <footer className="landing-footer">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <img src={myLogo} alt="Logo" style={{ width: 32, height: 32, objectFit: "contain" }} />
@@ -7744,10 +7768,13 @@ export default function LandingPage() {
 }
 
 
+
+
 ```
 
 ### File: Frontend\gyaanchat-frontend\src\pages\public\LoginPage.tsx
 ```tsx
+// Handles Login, Forgot Password, and Reset Password views
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -7755,13 +7782,16 @@ import { api } from "../../api/client";
 import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function LoginPage() {
+  // Toggle between login, forgot, and reset views
   const [view, setView] = useState<"login" | "forgot" | "reset">("login");
   
+  // Input fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   
+  // UI feedback
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -7769,6 +7799,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Handles standard login
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -7790,6 +7821,7 @@ export default function LoginPage() {
     }
   }
 
+  // Requests password reset code
   async function onForgotPassword(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -7806,6 +7838,7 @@ export default function LoginPage() {
     }
   }
 
+  // Completes password reset
   async function onResetPassword(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -7826,7 +7859,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth-shell">
-      {/* Left decorative panel */}
+      {/* Visual Branding Side */}
       <div className="auth-left">
         <div className="auth-left-logo">
           <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
@@ -7844,7 +7877,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right form panel */}
+      {/* Auth Form Side */}
       <div className="auth-right">
         <div className="auth-form-card">
           {view === "login" && (
@@ -7988,10 +8021,13 @@ export default function LoginPage() {
 }
 
 
+
+
 ```
 
 ### File: Frontend\gyaanchat-frontend\src\pages\public\RegisterPage.tsx
 ```tsx
+// Registration page with email verification
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -7999,21 +8035,25 @@ import { api } from "../../api/client";
 import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function RegisterPage() {
+    // Form fields
     const [name, setName] = useState("");
     const [websiteName, setWebsiteName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    
+    // Status feedback
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     
-    // OTP State
+    // Step state
     const [isVerifying, setIsVerifying] = useState(false);
     const [otp, setOtp] = useState("");
 
     const { login } = useAuth();
     const navigate = useNavigate();
 
+    // Handles user signup
     async function onSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
@@ -8036,6 +8076,7 @@ export default function RegisterPage() {
         }
     }
 
+    // Handles OTP verification
     async function onVerify(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
@@ -8054,7 +8095,7 @@ export default function RegisterPage() {
 
     return (
         <div className="auth-shell">
-            {/* Left decorative panel */}
+            {/* Sidebar with branding */}
             <div className="auth-left">
                 <div className="auth-left-logo">
                     <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
@@ -8072,7 +8113,7 @@ export default function RegisterPage() {
                 </div>
             </div>
 
-            {/* Right form panel */}
+            {/* Form Section */}
             <div className="auth-right">
                 <div className="auth-form-card">
                     {!isVerifying ? (
@@ -8160,6 +8201,8 @@ export default function RegisterPage() {
         </div>
     );
 }
+
+
 
 
 ```

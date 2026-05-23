@@ -87,8 +87,8 @@
         position: fixed;
         bottom: 100px;
         right: 24px;
-        width: 360px;
-        height: 540px;
+        width: 400px;
+        height: 620px;
         background: white;
         border-radius: 12px;
         box-shadow: 0 5px 40px rgba(0, 0, 0, 0.16);
@@ -293,11 +293,21 @@
         box-shadow: 0 1px 4px rgba(0,0,0,0.06);
       }
 
+      .gyaan-widget-message.bot .gyaan-widget-message-content p,
+      .gyaan-widget-message.bot .gyaan-widget-message-content li {
+        color: #111827 !important;
+      }
+
       .gyaan-widget-message.user .gyaan-widget-message-content {
         background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         border-bottom-right-radius: 4px;
         box-shadow: 0 2px 8px rgba(59,130,246,0.4);
+      }
+
+      .gyaan-widget-message.user .gyaan-widget-message-content p,
+      .gyaan-widget-message.user .gyaan-widget-message-content li {
+        color: white !important;
       }
 
       .gyaan-widget-typing {

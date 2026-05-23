@@ -1,3 +1,4 @@
+// Registration page with email verification
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -5,21 +6,25 @@ import { api } from "../../api/client";
 import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function RegisterPage() {
+    // Form fields
     const [name, setName] = useState("");
     const [websiteName, setWebsiteName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
+    
+    // Status feedback
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     
-    // OTP State
+    // Step state
     const [isVerifying, setIsVerifying] = useState(false);
     const [otp, setOtp] = useState("");
 
     const { login } = useAuth();
     const navigate = useNavigate();
 
+    // Handles user signup
     async function onSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
@@ -42,6 +47,7 @@ export default function RegisterPage() {
         }
     }
 
+    // Handles OTP verification
     async function onVerify(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
@@ -60,7 +66,7 @@ export default function RegisterPage() {
 
     return (
         <div className="auth-shell">
-            {/* Left decorative panel */}
+            {/* Sidebar with branding */}
             <div className="auth-left">
                 <div className="auth-left-logo">
                     <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
@@ -78,7 +84,7 @@ export default function RegisterPage() {
                 </div>
             </div>
 
-            {/* Right form panel */}
+            {/* Form Section */}
             <div className="auth-right">
                 <div className="auth-form-card">
                     {!isVerifying ? (
@@ -166,4 +172,6 @@ export default function RegisterPage() {
         </div>
     );
 }
+
+
 

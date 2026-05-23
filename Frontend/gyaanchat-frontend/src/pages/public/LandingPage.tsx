@@ -1,11 +1,13 @@
+// Main Landing Page for the application
 import { useNavigate } from "react-router-dom";
 import myLogo from "../../assets/gyaanchatlogo.png";
+
 export default function LandingPage() {
     const navigate = useNavigate();
 
     return (
         <div>
-            {/* ── Navbar ── */}
+            {/* Navigation Bar */}
             <nav className="landing-nav">
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <img src={myLogo} alt="Logo" style={{ width: 44, height: 44, objectFit: "contain" }} />
@@ -18,7 +20,7 @@ export default function LandingPage() {
                 </div>
             </nav>
 
-            {/* ── Hero ── */}
+            {/* Hero Section */}
             <section style={{ background: "var(--color-bg)", padding: "0 24px" }}>
                 <div className="landing-hero">
                     <h1 className="hero-title">
@@ -38,7 +40,7 @@ export default function LandingPage() {
                         </button>
                     </div>
 
-                    {/* Mock browser window */}
+                    {/* Chat Preview */}
                     <div className="mock-browser">
                         <div className="mock-browser-bar">
                             <div className="mock-dot" style={{ background: "#ff5f57" }} />
@@ -55,7 +57,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── Features ── */}
+            {/* Features List */}
             <section className="features-section">
                 <h2 className="section-title">Everything you need</h2>
                 <p className="section-sub">A complete platform for building and deploying AI chatbots</p>
@@ -77,7 +79,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── How It Works ── */}
+            {/* Step-by-step Guide */}
             <section className="how-section" id="how-it-works">
                 <h2 className="section-title">How it works</h2>
                 <p className="section-sub">Get your AI chatbot live in three simple steps</p>
@@ -97,7 +99,7 @@ export default function LandingPage() {
                 </div>
             </section>
 
-            {/* ── CTA ── */}
+            {/* CTA Section */}
             <section className="cta-section">
                 <h2 className="cta-title">Ready to get started?</h2>
                 <p className="cta-sub">Join hundreds of teams using GyaanChat to power their support.</p>
@@ -106,7 +108,7 @@ export default function LandingPage() {
                 </button>
             </section>
 
-            {/* ── Footer ── */}
+            {/* Footer */}
             <footer className="landing-footer">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <img src={myLogo} alt="Logo" style={{ width: 32, height: 32, objectFit: "contain" }} />
@@ -121,4 +123,6 @@ export default function LandingPage() {
         </div>
     );
 }
+
+
 

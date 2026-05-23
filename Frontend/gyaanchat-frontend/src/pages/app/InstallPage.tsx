@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Tag, Code, Frame, MessageSquare, Copy } from "lucide-react";
+import { Tag, Frame, MessageSquare, Copy } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import { API_BASE } from "../../api/client";
 
-type Tab = "script" | "react" | "iframe";
+type Tab = "script" | "iframe";
 
 export default function InstallPage() {
     const { bot } = useAuth();
@@ -21,20 +21,6 @@ export default function InstallPage() {
   };
 </script>
 <script src="${API_BASE}/widget.js" defer></script>`,
-        react: `// Install: npm install @gyaanchat/widget
-import { GyaanChatWidget } from "@gyaanchat/widget";
-
-export default function App() {
-  return (
-    <>
-      {/* Your app */}
-      <GyaanChatWidget
-        widgetKey="${widgetKey}"
-                apiBase="${API_BASE}"
-      />
-    </>
-  );
-}`,
         iframe: `<!-- Embed as an iframe -->
 <iframe
     src="${API_BASE}/chat-embed?key=${widgetKey}"
@@ -45,6 +31,7 @@ export default function App() {
   style="border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"
 ></iframe>`,
     };
+
 
     function copy(text: string) {
         navigator.clipboard.writeText(text);
@@ -80,12 +67,13 @@ export default function App() {
                     {/* Tabs */}
                     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                         <div className="tabs" style={{ padding: "0 20px", marginBottom: 0, borderBottom: "1px solid var(--color-border)" }}>
-                            {(["script", "react", "iframe"] as Tab[]).map((t) => (
+                            {(["script", "iframe"] as Tab[]).map((t) => (
                                 <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-                                    {t === "script" ? <><Tag size={14} /> Script Tag</> : t === "react" ? <><Code size={14} /> React</> : <><Frame size={14} /> iFrame</>}
+                                    {t === "script" ? <><Tag size={14} /> Script Tag</> : <><Frame size={14} /> iFrame</>}
                                 </button>
                             ))}
                         </div>
+
                         <div style={{ padding: 20 }}>
                             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
                                 <button className="btn-ghost" style={{ padding: "6px 12px", fontSize: "0.75rem" }} onClick={() => copy(SNIPPETS[tab])}>

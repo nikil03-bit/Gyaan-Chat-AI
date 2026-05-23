@@ -38,12 +38,12 @@ def extract_text(file_path: str, filename: str) -> str:
     """Extract plain text from PDF, TXT, DOCX, MD, CSV, or HTML files."""
     ext = os.path.splitext(filename)[1].lower()
 
-    # ── Plain text / Markdown (identical treatment) ───────────────────────────
+    # ── Plain text / Markdown (identical treatment) 
     if ext in (".txt", ".md"):
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read().strip()
 
-    # ── PDF ───────────────────────────────────────────────────────────────────
+    # ── PDF 
     if ext == ".pdf":
         try:
             from PyPDF2 import PdfReader
@@ -57,7 +57,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read PDF: {e}")
 
-    # ── DOCX ──────────────────────────────────────────────────────────────────
+    # ── DOCX 
     if ext == ".docx":
         try:
             from docx import Document
@@ -67,7 +67,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read DOCX: {e}")
 
-    # ── CSV ───────────────────────────────────────────────────────────────────
+    # ── CSV 
     if ext == ".csv":
         import csv
         rows = []
@@ -82,7 +82,7 @@ def extract_text(file_path: str, filename: str) -> str:
         except Exception as e:
             raise ValueError(f"Could not read CSV: {e}")
 
-    # ── HTML / HTM ────────────────────────────────────────────────────────────
+    # ── HTML / HTM 
     if ext in (".html", ".htm"):
         from html.parser import HTMLParser
 

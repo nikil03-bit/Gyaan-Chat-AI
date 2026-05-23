@@ -18,7 +18,10 @@ class Bot(Base):
 
     widget_key: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False, default=_uuid)
     logo_url: Mapped[str] = mapped_column(String, nullable=True, default=None)
+    support_email: Mapped[str] = mapped_column(String, nullable=True, default=None)
+    support_phone: Mapped[str] = mapped_column(String, nullable=True, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="bots")
+

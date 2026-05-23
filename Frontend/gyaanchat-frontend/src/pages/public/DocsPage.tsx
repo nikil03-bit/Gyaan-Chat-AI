@@ -1,3 +1,4 @@
+// Renders documentation from Markdown
 import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import DocsMarkdown from '../../components/docs/DocsMarkdown';
 import DocsTOC from '../../components/docs/DocsTOC';
@@ -7,17 +8,23 @@ import DocsLayout from '../../components/layout/DocsLayout';
 import { Clock, ArrowLeft, ArrowRight } from 'lucide-react';
 
 export default function DocsPage() {
+  // Get slug from URL
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
 
+  // Redirect if no slug
   if (!slug) {
     return <Navigate to="/docs/getting-started" replace />;
   }
 
+  // Fetch meta and content
   const docInfo = getDocBySlug(slug);
   const content = getContentForSlug(slug);
+  
+  // Get nav links
   const { prev, next } = getAdjacentDocs(slug);
 
+  // 404 state
   if (!docInfo || !content) {
     return (
       <DocsLayout>
@@ -41,7 +48,7 @@ export default function DocsPage() {
     <DocsLayout>
       <div className="docs-page-layout">
         <div className="docs-page-content">
-          {/* Article hero */}
+          {/* Header */}
           <div className="docs-article-hero">
             <div className="docs-article-icon-wrap">
               <Icon size={22} strokeWidth={1.75} />
@@ -55,10 +62,10 @@ export default function DocsPage() {
             </div>
           </div>
 
-          {/* Main article content */}
+          {/* Article Body */}
           <DocsMarkdown content={content} />
 
-          {/* Prev / Next navigation */}
+          {/* Navigation */}
           <div className="docs-pagination">
             {prev ? (
               <button
@@ -92,9 +99,11 @@ export default function DocsPage() {
           </div>
         </div>
 
-        {/* Right TOC */}
+        {/* Sidebar TOC */}
         <DocsTOC content={content} />
       </div>
     </DocsLayout>
   );
 }
+
+

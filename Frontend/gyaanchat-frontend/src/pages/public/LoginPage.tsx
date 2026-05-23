@@ -1,3 +1,4 @@
+// Handles Login, Forgot Password, and Reset Password views
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -5,13 +6,16 @@ import { api } from "../../api/client";
 import myLogo from "../../assets/gyaanchatlogo.png";
 
 export default function LoginPage() {
+  // Toggle between login, forgot, and reset views
   const [view, setView] = useState<"login" | "forgot" | "reset">("login");
   
+  // Input fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   
+  // UI feedback
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,6 +23,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Handles standard login
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -40,6 +45,7 @@ export default function LoginPage() {
     }
   }
 
+  // Requests password reset code
   async function onForgotPassword(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -56,6 +62,7 @@ export default function LoginPage() {
     }
   }
 
+  // Completes password reset
   async function onResetPassword(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -76,7 +83,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth-shell">
-      {/* Left decorative panel */}
+      {/* Visual Branding Side */}
       <div className="auth-left">
         <div className="auth-left-logo">
           <img src={myLogo} alt="Logo" className="auth-left-logo-mark" style={{ objectFit: "contain" }} />
@@ -94,7 +101,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right form panel */}
+      {/* Auth Form Side */}
       <div className="auth-right">
         <div className="auth-form-card">
           {view === "login" && (
@@ -236,4 +243,6 @@ export default function LoginPage() {
     </div>
   );
 }
+
+
 

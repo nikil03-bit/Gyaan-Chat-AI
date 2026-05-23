@@ -243,11 +243,21 @@
         box-shadow: 0 1px 4px rgba(0,0,0,0.06);
       }
 
+      .gyaan-chat-message.bot .gyaan-chat-message-content p,
+      .gyaan-chat-message.bot .gyaan-chat-message-content li {
+        color: #111827 !important;
+      }
+
       .gyaan-chat-message.user .gyaan-chat-message-content {
         background: linear-gradient(135deg, #3b82f6, #2563eb);
         color: white;
         border-bottom-right-radius: 4px;
         box-shadow: 0 2px 8px rgba(59,130,246,0.4);
+      }
+
+      .gyaan-chat-message.user .gyaan-chat-message-content p,
+      .gyaan-chat-message.user .gyaan-chat-message-content li {
+        color: white !important;
       }
 
       .gyaan-chat-typing {

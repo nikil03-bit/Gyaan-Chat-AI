@@ -8,7 +8,7 @@ OLLAMA_URL = f"{OLLAMA_BASE_URL}/api/generate"
 MODEL = os.getenv("OLLAMA_MODEL", "mistral")
 
 
-def generate_answer(prompt: str) -> str:
+def generate_answer(prompt: str, temperature: float = 0.2) -> str:
     try:
         response = requests.post(
             OLLAMA_URL,
@@ -18,7 +18,7 @@ def generate_answer(prompt: str) -> str:
                 "stream": False,
                 "keep_alive": -1,
                 "options": {
-                    "temperature": 0.2
+                    "temperature": temperature
                 }
             },
             timeout=300
@@ -31,7 +31,7 @@ def generate_answer(prompt: str) -> str:
             detail=f"Failed to connect to Ollama. Is the model '{MODEL}' available? Error: {str(e)}"
         )
 
-def generate_answer_stream(prompt: str):
+def generate_answer_stream(prompt: str, temperature: float = 0.2):
     try:
         response = requests.post(
             OLLAMA_URL,
@@ -41,7 +41,7 @@ def generate_answer_stream(prompt: str):
                 "stream": True,
                 "keep_alive": -1,
                 "options": {
-                    "temperature": 0.2
+                    "temperature": temperature
                 }
             },
             stream=True,
