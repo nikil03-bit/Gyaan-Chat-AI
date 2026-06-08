@@ -9,28 +9,28 @@ GyaanChat is an enterprise-ready, multi-tenant custom AI assistant builder. It e
 <!-- SCREENSHOT_START -->
 ### Dashboard Overview
 *Monitor chatbot analytics, total messages, and bot usage in real-time.*
-![Dashboard Overview](docs-images/dashboard.png)
-*(Replace this image with a screenshot of your main dashboard: save as `docs-images/dashboard.png`)*
+![Dashboard Overview](Frontend/gyaanchat-frontend/public/docs-images/dashboard.png)
+*(To update this screenshot, replace the file at `Frontend/gyaanchat-frontend/public/docs-images/dashboard.png`)*
 
 ### Knowledge Base
 *Upload documents (PDF, Word, TXT) which are automatically chunked and embedded into ChromaDB.*
-![Knowledge Base](docs-images/knowledge-base.png)
-*(Replace this image with a screenshot of the knowledge base / document upload page: save as `docs-images/knowledge-base.png`)*
+![Knowledge Base](Frontend/gyaanchat-frontend/public/docs-images/documents.png)
+*(To update this screenshot, replace the file at `Frontend/gyaanchat-frontend/public/docs-images/documents.png`)*
 
 ### Bot Customization
 *Personalize the name, avatar, color palette, custom greetings, and model instructions.*
-![Bot Customization](docs-images/bot-customization.png)
-*(Replace this image with a screenshot of the bot settings panel: save as `docs-images/bot-customization.png`)*
+![Bot Customization](Frontend/gyaanchat-frontend/public/docs-images/bot-settings.png)
+*(To update this screenshot, replace the file at `Frontend/gyaanchat-frontend/public/docs-images/bot-settings.png`)*
 
 ### Live Chat & Testing
 *Interact with your custom bot in a sandbox environment before making it live.*
-![Live Chat Playground](docs-images/chat-playground.png)
-*(Replace this image with a screenshot of the live chat sandbox: save as `docs-images/chat-playground.png`)*
+![Live Chat Playground](Frontend/gyaanchat-frontend/public/docs-images/test-chat.png)
+*(To update this screenshot, replace the file at `Frontend/gyaanchat-frontend/public/docs-images/test-chat.png`)*
 
 ### Website Integration
 *Copy-paste a single line of JavaScript code to embed the chatbot widget on any website.*
-![Website Widget Integration](docs-images/widget-integration.png)
-*(Replace this image with a screenshot of the widget embed instructions / sample integration: save as `docs-images/widget-integration.png`)*
+![Website Widget Integration](Frontend/gyaanchat-frontend/public/docs-images/install.png)
+*(To update this screenshot, replace the file at `Frontend/gyaanchat-frontend/public/docs-images/install.png`)*
 <!-- SCREENSHOT_END -->
 
 ---
