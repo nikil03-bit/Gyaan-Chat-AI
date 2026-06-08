@@ -31,6 +31,9 @@ GyaanChat is an enterprise-ready, multi-tenant custom AI assistant builder. It e
 *Copy-paste a single line of JavaScript code to embed the chatbot widget on any website.*
 ![Website Widget Integration](Frontend/gyaanchat-frontend/public/docs-images/install.png)
 
+### Chatbot Live on Tenant Website
+*How the embedded chatbot widget looks and behaves when integrated into an external customer website.*
+![Chatbot in Tenant Website](Frontend/gyaanchat-frontend/public/docs-images/Chatbot%20in%20website.png)
 
 ---
 
