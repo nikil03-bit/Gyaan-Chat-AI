@@ -184,6 +184,4 @@ This script dynamic injects a responsive chat interface that connects securely b
 
 ---
 
-## 🛡️ License
 
-This project is licensed under the MIT License.
