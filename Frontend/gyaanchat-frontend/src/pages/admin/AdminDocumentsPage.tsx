@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { FileText } from "lucide-react";
 
 interface Doc { doc_id: string; filename: string; tenant_id: string; status: string; error?: string; updated_at: string; }
-const SC: Record<string, string> = { completed: "#10b981", processing: "#f59e0b", failed: "#ef4444" };
+
+const STATUS_COLORS: Record<string, string> = {
+  completed: "#10b981",
+  processing: "#f59e0b",
+  failed: "#ef4444",
+};
 
 export default function AdminDocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -16,31 +22,71 @@ export default function AdminDocumentsPage() {
       .then(r => setDocs(r.data)).catch(console.error).finally(() => setLoading(false));
   }, [token]);
 
-  const filtered = docs.filter(d => (d.filename || "").toLowerCase().includes(search.toLowerCase()) || d.status.toLowerCase().includes(search.toLowerCase()));
+  const filtered = docs.filter(d =>
+    (d.filename || "").toLowerCase().includes(search.toLowerCase()) ||
+    d.status.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <div>
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div><h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Document Management</h1><p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>Monitor document processing jobs across all tenants.</p></div>
-        <input className="input" placeholder="Search documents…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240, margin: 0 }} />
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <FileText size={24} style={{ color: "var(--color-accent)" }} />
+            Document Management
+          </h1>
+          <p className="page-subtitle">Monitor document processing jobs across all tenants.</p>
+        </div>
+        <input
+          className="input"
+          placeholder="Search documents…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ width: 240, margin: 0 }}
+        />
       </div>
-      <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, overflow: "hidden" }}>
-        {loading ? <p style={{ padding: 24, color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-            <thead style={{ background: "var(--color-bg,#0f1117)", borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-              <tr>{["Filename","Tenant","Status","Error","Updated"].map(h => <th key={h} style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600, fontSize: "0.72rem", textTransform: "uppercase", color: "var(--color-text-muted,#94a3b8)" }}>{h}</th>)}</tr>
+
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {loading ? (
+          <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+            {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 20 }} />)}
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                {["Filename", "Tenant ID", "Status", "Error", "Last Updated"].map(col => (
+                  <th key={col}>{col}</th>
+                ))}
+              </tr>
             </thead>
             <tbody>
-              {filtered.map(d => (
-                <tr key={d.doc_id} style={{ borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                  <td style={{ padding: "10px 14px", fontWeight: 600 }}>{d.filename || "—"}</td>
-                  <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)" }}>{d.tenant_id?.slice(0,8)}…</td>
-                  <td style={{ padding: "10px 14px" }}><span style={{ padding: "3px 10px", borderRadius: 20, fontSize: "0.72rem", fontWeight: 600, background: `${SC[d.status] || "#888"}20`, color: SC[d.status] || "#888" }}>{d.status}</span></td>
-                  <td style={{ padding: "10px 14px", color: "#ef4444", fontSize: "0.72rem" }}>{d.error || "—"}</td>
-                  <td style={{ padding: "10px 14px", color: "var(--color-text-muted,#94a3b8)", fontSize: "0.72rem" }}>{d.updated_at ? new Date(d.updated_at).toLocaleString() : "—"}</td>
+              {filtered.map(d => {
+                const color = STATUS_COLORS[d.status] || "#888";
+                return (
+                  <tr key={d.doc_id}>
+                    <td style={{ fontWeight: 600 }}>{d.filename || "—"}</td>
+                    <td>
+                      <code className="mono" style={{ fontSize: "0.72rem" }}>{d.tenant_id?.slice(0, 8)}…</code>
+                    </td>
+                    <td>
+                      <span className="badge" style={{ background: `${color}20`, color }}>{d.status}</span>
+                    </td>
+                    <td style={{ color: "#ef4444", fontSize: "0.78rem" }}>{d.error || "—"}</td>
+                    <td className="muted">{d.updated_at ? new Date(d.updated_at).toLocaleString() : "—"}</td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center" }}>
+                    <div className="empty-state" style={{ padding: "32px 0" }}>
+                      <div className="empty-state-icon"><FileText size={40} /></div>
+                      <div className="empty-state-title">No documents found</div>
+                    </div>
+                  </td>
                 </tr>
-              ))}
-              {filtered.length === 0 && <tr><td colSpan={5} style={{ padding: 24, textAlign: "center", color: "var(--color-text-muted,#94a3b8)" }}>No documents found.</td></tr>}
+              )}
             </tbody>
           </table>
         )}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { Building2, MessageSquare, FileText, Bot, Users, BarChart2 } from "lucide-react";
 
 interface DashboardData {
   total_tenants: number; active_tenants: number; total_users: number; total_bots: number;
@@ -11,16 +12,6 @@ interface DashboardData {
 interface AnalyticsData {
   top_tenants: { tenant_name: string; messages: number }[];
   daily_trend: { date: string; messages: number }[];
-}
-
-function StatCard({ label, value, sub, color }: { label: string; value: number | string; sub?: string; color?: string }) {
-  return (
-    <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: "20px 24px", borderLeft: color ? `3px solid ${color}` : undefined }}>
-      <div style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)" }}>{label}</div>
-      <div style={{ fontSize: "1.875rem", fontWeight: 800, marginTop: 6, color: color || "var(--color-text,#e2e8f0)" }}>{value}</div>
-      {sub && <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)", marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
 }
 
 export default function AdminDashboardPage() {
@@ -43,62 +34,106 @@ export default function AdminDashboardPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
+  const STATS = data ? [
+    { label: "Total Tenants",    value: data.total_tenants,   sub: `${data.active_tenants} active`,   icon: <Building2 size={20} />,    accent: "#7c3aed" },
+    { label: "Total Users",      value: data.total_users,     sub: undefined,                          icon: <Users size={20} />,        accent: "#2563eb" },
+    { label: "Total Bots",       value: data.total_bots,      sub: undefined,                          icon: <Bot size={20} />,          accent: "#0891b2" },
+    { label: "Total Messages",   value: data.total_messages,  sub: undefined,                          icon: <MessageSquare size={20} />,accent: "#f59e0b" },
+    { label: "Documents",        value: data.total_documents, sub: data.failed_documents > 0 ? `${data.failed_documents} failed` : undefined, icon: <FileText size={20} />, accent: data.failed_documents > 0 ? "#ef4444" : "#10b981" },
+  ] : [];
+
   return (
-    <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 800, margin: 0 }}>Platform Overview</h1>
-        <p style={{ color: "var(--color-text-muted,#94a3b8)", marginTop: 4, fontSize: "0.875rem" }}>Real-time snapshot of your entire GyaanChat platform.</p>
+    <div className="page">
+      {/* Page header */}
+      <div className="page-header">
+        <div>
+          <h1 className="page-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <BarChart2 size={24} style={{ color: "var(--color-accent)" }} />
+            Platform Overview
+          </h1>
+          <p className="page-subtitle">Real-time snapshot of your entire GyaanChat platform.</p>
+        </div>
       </div>
-      {loading ? <p style={{ color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p> : !data ? <p style={{ color: "#ef4444" }}>Failed to load.</p> : (
+
+      {loading ? (
+        <div className="stat-grid">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="stat-card">
+              <div className="skeleton" style={{ height: 14, width: "50%", marginBottom: 12 }} />
+              <div className="skeleton" style={{ height: 36, width: "60%" }} />
+            </div>
+          ))}
+        </div>
+      ) : !data ? (
+        <div className="empty-state">
+          <div className="empty-state-title">Failed to load dashboard.</div>
+        </div>
+      ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 16, marginBottom: 32 }}>
-            <StatCard label="Total Tenants"   value={data.total_tenants}   sub={`${data.active_tenants} active`} color="#7c3aed" />
-            <StatCard label="Total Users"     value={data.total_users}     color="#2563eb" />
-            <StatCard label="Total Bots"      value={data.total_bots}      color="#0891b2" />
-            <StatCard label="Documents"       value={data.total_documents} sub={data.failed_documents > 0 ? `${data.failed_documents} failed` : undefined} color={data.failed_documents > 0 ? "#ef4444" : "#10b981"} />
-            <StatCard label="Total Messages"  value={data.total_messages}  color="#f59e0b" />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 16 }}>
-            <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
-              <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 14 }}>Top Active Tenants</h2>
-              {!analytics || analytics.top_tenants.length === 0 ? (
-                <p style={{ color: "var(--color-text-muted,#94a3b8)", fontSize: "0.875rem" }}>No tenant analytics available yet.</p>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {analytics.top_tenants.map((tenant, idx) => (
-                    <div key={`${tenant.tenant_name}-${idx}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, paddingBottom: 10, borderBottom: "1px solid var(--color-border,#2a2d3a)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ width: 20, height: 20, borderRadius: 999, background: "#7c3aed20", color: "#a855f7", fontSize: "0.72rem", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{idx + 1}</span>
-                        <span style={{ fontWeight: 600, fontSize: "0.86rem" }}>{tenant.tenant_name}</span>
-                      </div>
-                      <span style={{ color: "var(--color-text-muted,#94a3b8)", fontSize: "0.78rem" }}>{tenant.messages} msgs</span>
-                    </div>
-                  ))}
+          {/* Stat Cards */}
+          <div className="stat-grid">
+            {STATS.map((s) => (
+              <div key={s.label} className="stat-card" style={{ borderLeft: `3px solid ${s.accent}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div className="stat-label">{s.label}</div>
+                  <div style={{ color: s.accent, opacity: 0.8 }}>{s.icon}</div>
                 </div>
-              )}
+                <div className="stat-value">{s.value.toLocaleString()}</div>
+                {s.sub && <div className="stat-sub">{s.sub}</div>}
+              </div>
+            ))}
+          </div>
+
+          {/* Two-column section */}
+          <div className="charts-grid">
+            {/* Top Tenants */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--color-border)" }}>
+                <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Top Active Tenants</h2>
+              </div>
+              <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+                {!analytics || analytics.top_tenants.length === 0 ? (
+                  <div className="empty-state" style={{ padding: "24px 0" }}>
+                    <div className="empty-state-icon"><Building2 size={36} /></div>
+                    <div className="empty-state-sub">No tenant analytics available yet.</div>
+                  </div>
+                ) : analytics.top_tenants.map((tenant, idx) => (
+                  <div key={`${tenant.tenant_name}-${idx}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, paddingBottom: 12, borderBottom: "1px solid var(--color-border)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ width: 24, height: 24, borderRadius: "50%", background: "var(--color-accent)22", color: "var(--color-accent)", fontSize: "0.72rem", fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{idx + 1}</span>
+                      <span style={{ fontWeight: 600, fontSize: "0.875rem" }}>{tenant.tenant_name}</span>
+                    </div>
+                    <span className="badge badge-muted">{tenant.messages} msgs</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div style={{ background: "var(--color-bg-card,#1a1d27)", border: "1px solid var(--color-border,#2a2d3a)", borderRadius: 12, padding: 24 }}>
-              <h2 style={{ fontSize: "0.875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted,#94a3b8)", marginBottom: 14 }}>Daily Trend</h2>
-              {!analytics || analytics.daily_trend.length === 0 ? (
-                <p style={{ color: "var(--color-text-muted,#94a3b8)", fontSize: "0.875rem" }}>No trend data available yet.</p>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {analytics.daily_trend.slice(0, 7).map((d) => {
-                    const maxMessages = Math.max(...analytics.daily_trend.map((row) => row.messages), 1);
-                    const width = Math.max(6, Math.round((d.messages / maxMessages) * 100));
-                    return (
-                      <div key={d.date} style={{ display: "grid", gridTemplateColumns: "78px 1fr 52px", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)" }}>{d.date.slice(5)}</span>
-                        <div style={{ height: 8, background: "#1f2430", borderRadius: 999, overflow: "hidden" }}>
-                          <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#2563eb,#0ea5e9)", borderRadius: 999 }} />
-                        </div>
-                        <span style={{ textAlign: "right", fontSize: "0.72rem", color: "var(--color-text-muted,#94a3b8)" }}>{d.messages}</span>
+            {/* Daily Trend */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--color-border)" }}>
+                <h2 style={{ fontSize: "1rem", fontWeight: 600 }}>Daily Message Trend</h2>
+              </div>
+              <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+                {!analytics || analytics.daily_trend.length === 0 ? (
+                  <div className="empty-state" style={{ padding: "24px 0" }}>
+                    <div className="empty-state-icon"><BarChart2 size={36} /></div>
+                    <div className="empty-state-sub">No trend data available yet.</div>
+                  </div>
+                ) : analytics.daily_trend.slice(0, 7).map((d) => {
+                  const maxMessages = Math.max(...analytics.daily_trend.map((row) => row.messages), 1);
+                  const width = Math.max(4, Math.round((d.messages / maxMessages) * 100));
+                  return (
+                    <div key={d.date} style={{ display: "grid", gridTemplateColumns: "72px 1fr 48px", alignItems: "center", gap: 12 }}>
+                      <span className="muted" style={{ fontSize: "0.72rem" }}>{d.date.slice(5)}</span>
+                      <div style={{ height: 8, background: "var(--color-bg-input)", borderRadius: 999, overflow: "hidden" }}>
+                        <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,var(--color-accent),#0ea5e9)", borderRadius: 999, transition: "width 0.4s ease" }} />
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                      <span className="muted" style={{ textAlign: "right", fontSize: "0.72rem" }}>{d.messages}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </>

@@ -1,6 +1,8 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Bot, Building2, FileText, LayoutDashboard } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { Bot, Building2, FileText, LayoutDashboard, LogOut, ChevronUp } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import myLogo from "../../assets/gyaanchatlogo.png";
 
 const NAV = [
   { to: "/admin/dashboard",      icon: LayoutDashboard, label: "Dashboard"     },
@@ -12,53 +14,83 @@ const NAV = [
 export default function AdminLayout() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
-  function handleLogout() { logout(); navigate("/", { replace: true }); }
+  const initials = user?.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "A";
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setPopoverOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function handleLogout() {
+    logout();
+    navigate("/", { replace: true });
+  }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "var(--color-bg, #0f1117)" }}>
-      <aside style={{
-        width: 220, flexShrink: 0,
-        background: "var(--color-bg-card, #1a1d27)",
-        borderRight: "1px solid var(--color-border, #2a2d3a)",
-        display: "flex", flexDirection: "column",
-      }}>
-        <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid var(--color-border, #2a2d3a)", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#7c3aed,#a855f7)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: "1rem", flexShrink: 0 }}>G</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: "0.875rem" }}>GyaanChat</div>
-            <div style={{ fontSize: "0.65rem", background: "#7c3aed20", color: "#a855f7", padding: "1px 6px", borderRadius: 4, display: "inline-block", marginTop: 2 }}>Super Admin</div>
+    <div className="app-shell">
+      <aside className="sidebar">
+        {/* Brand */}
+        <Link to="/admin" className="sidebar-brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <img src={myLogo} alt="GyaanChat Logo" className="sidebar-logo" />
+          <div className="sidebar-brand-text">
+            <span className="sidebar-brand-name">GyaanChat</span>
+            <span className="sidebar-brand-sub">Platform Admin</span>
           </div>
-        </div>
+        </Link>
 
-        <nav style={{ flex: 1, padding: "12px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
+        {/* Navigation */}
+        <nav className="sidebar-nav">
           {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} style={({ isActive }) => ({
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "8px 12px", borderRadius: 8, fontSize: "0.85rem", fontWeight: 500,
-              textDecoration: "none",
-              color: isActive ? "#a855f7" : "var(--color-text, #e2e8f0)",
-              background: isActive ? "#7c3aed18" : "transparent",
-              transition: "all 0.15s",
-            })}>
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-                <n.icon size={16} strokeWidth={2.1} />
-              </span>
+            <NavLink
+              key={n.to}
+              to={n.to}
+              end={n.to === "/admin"}
+              className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+            >
+              <n.icon size={20} />
               {n.label}
             </NavLink>
           ))}
         </nav>
 
-        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--color-border, #2a2d3a)" }}>
-          <div style={{ fontSize: "0.72rem", color: "var(--color-text-muted, #94a3b8)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.email}</div>
-          <button onClick={handleLogout} style={{ width: "100%", background: "transparent", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 6, padding: "5px 10px", fontSize: "0.78rem", cursor: "pointer" }}>
-            Sign Out
-          </button>
+        {/* User footer */}
+        <div className="sidebar-footer" ref={popoverRef}>
+          {popoverOpen && (
+            <div className="user-popover">
+              <button className="popover-item danger" onClick={handleLogout}>
+                <LogOut size={14} />
+                Logout
+              </button>
+            </div>
+          )}
+
+          <div className="sidebar-user" onClick={() => setPopoverOpen((v) => !v)}>
+            <div className="user-avatar">{initials}</div>
+            <div className="user-info">
+              <div className="user-name">{user?.name || "Admin"}</div>
+              <div className="user-email">{user?.email || ""}</div>
+            </div>
+            <ChevronUp size={12} style={{ opacity: 0.4, flexShrink: 0 }} />
+          </div>
         </div>
       </aside>
-      <main style={{ flex: 1, overflowY: "auto", padding: "32px 36px" }}>
-        <Outlet />
-      </main>
+
+      <div className="app-main">
+        {/* Main scrollable content matching tenant page structures */}
+        <div className="app-content" style={{ padding: "32px 36px" }}>
+          <Outlet />
+        </div>
+      </div>
     </div>
   );
 }
